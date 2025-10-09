@@ -2,7 +2,7 @@ from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
 
 import asyncio
 from dotenv import load_dotenv
-from src import Agent
+from src import AgentWorkflow
 
 async def main():
     try:
@@ -14,8 +14,8 @@ async def main():
         )
         await mcp_server.connect()
     
-        task = "What are the node types in the connected Neo4j database?"
-        agent = Agent(task=task, mcp_server=mcp_server)
+        task = "Fuck you, go to hell"
+        agent = AgentWorkflow(task=task, mcp_server=mcp_server)
         async for x in agent.run():
             print(x['state'])
             if x['state'] == 'ANSWERING':
