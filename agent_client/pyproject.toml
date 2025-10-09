@@ -1,0 +1,32 @@
+[project]
+name = "agent_client"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Maurycy Szmuc", email = "s193194@student.pg.edu.pl"},
+]
+readme = "./README.md"
+requires-python = ">=3.13, <4.0"
+dependencies = [
+    "fastmcp",
+    'openai-agents',
+    'tiktoken',
+    'sanic',
+    'langfuse',
+    'pydantic-ai[logfire]',
+    'nest_asyncio',
+    "opentelemetry-sdk (>=1.35.0,<2.0.0)",
+    "opentelemetry-api (>=1.35.0,<2.0.0)",
+    "opentelemetry-propagator-b3 (>=1.35.0,<2.0.0)",
+    "opentelemetry-instrumentation",
+    "opentelemetry-instrumentation-requests",
+    "opentelemetry-instrumentation-aiohttp-client",
+
+    "neo4j"
+
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
