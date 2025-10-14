@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 from git import Repo
 from dotenv import load_dotenv
+from Detect_Useless_Commits import detect_useless_commits
 load_dotenv()
 
 # --- zmienne środowiskowe ---
@@ -155,12 +156,24 @@ def delete_sonar_project(project_key):
     else:
         print(f"Nie udało się usunąć projektu '{project_key}'. Status: {response.status_code}, odpowiedź: {response.text}")
     
+def reset_to_latest_and_detect(repo):
+ 
+    # Przywracanie repozytorium do najnowszego commita z gałęzi {GIT_BRANCH}
+    repo.git.checkout(GIT_BRANCH)
+    repo.remotes.origin.pull()
+    
+    # Uruchamianie detekcji bezużytecznych commitów
+    detect_useless_commits()  
+    return results
+    
+    
 if __name__ == "__main__":
     commits = load_commits()
     setup_workspace()
     repo = clone_repository()
     commits_len = len(commits)
     commit_key = SONAR_PROJECT_KEY
+    results = reset_to_latest_and_detect(repo)
     create_sonar_properties_file(commit_key)
     print(f"Znaleziono {commits_len} commitów.")
     
