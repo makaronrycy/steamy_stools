@@ -1,30 +1,20 @@
-from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
 
 import asyncio
 from dotenv import load_dotenv
-from src import AgentWorkflow
-
-async def main():
-    try:
-        
-        mcp_server = MCPServerStreamableHttp(
-            params=MCPServerStreamableHttpParams(
-                url='http://localhost:7000/mcp'
-            )
-        )
-        await mcp_server.connect()
-    
-        task = "Fuck you, go to hell"
-        agent = AgentWorkflow(task=task, mcp_server=mcp_server)
-        async for x in agent.run():
-            print(x['state'])
-            if x['state'] == 'ANSWERING':
-                print(x['answer'])
-
-        await mcp_server.cleanup()
-    except Exception as e:
-        print(f"Error: {e}")
-
+from src import get_app
+from sanic import Sanic
+from functools import partial
+from sanic.worker.loader import AppLoader
+from sanic.worker.manager import WorkerManager
+import os
+def main():
+    loader = AppLoader(factory = partial(get_app))
+    app = loader.load()
+    workers = 2
+    debug =True
+    app.prepare('0.0.0.0', 3000, debug=debug, workers=workers)
+    Sanic.serve(primary=app, app_loader=loader)
 if __name__ == "__main__":
     load_dotenv()
-    asyncio.run(main())
+    main()
+    

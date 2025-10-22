@@ -2,12 +2,20 @@ from .. import MCP_SERVER
 
 
 @MCP_SERVER.prompt(
-    name="example_prompt",
+    name="initial_prompt",
     description="An example prompt that generates a greeting message.",
     tags=set(['example', 'greeting']),
 )
-async def example_prompt(param) -> str:
-    return f"Your task is to greet {param} warmly. If he's rude to you, handoff to the insult_agent."
+async def initial_prompt() -> str:
+    return f"Your task is to greet the user warmly, and ask them for their name."
+
+@MCP_SERVER.prompt(
+    name="wellness_check_prompt",
+    description="A prompt for checking in on the user's wellness.",
+    tags=set(['example', 'wellness']),
+)
+async def wellness_check_prompt() -> str:
+    return "You are a wellness check bot. Ask the user how they are feeling and provide supportive responses."
 
 @MCP_SERVER.prompt(
     name="insult_prompt",

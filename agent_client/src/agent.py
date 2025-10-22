@@ -5,15 +5,17 @@ from agents.mcp import MCPServerStreamableHttp
 from agents import Agent,Runner,handoff
 import logging
 class AgentWorkflow:
-    def __init__(self, task, mcp_server: MCPServerStreamableHttp):
-        self.task = task
+    def __init__(self, user_anwser, state,mcp_server: MCPServerStreamableHttp):
+        self.user_anwser = user_anwser
         self.mcp_server = mcp_server
-        self.model = "gpt-4o"
+        self.state = state
+        self.model = "gpt-4o-mini"
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
         yield {"state": "STARTING"}
-        agent = await self.prepare_agent()
+        agent = await self.prepare_agent(self.state["prompt_name"],allowed_handoffs=self.state["allowed_handoffs"])
         runner =  Runner()
-        prompt = f"""Zadanie użytkownika: {self.task}"""
+        prompt = f"""Pytanie: {self.state["last_question"]}
+                    Odpowiedź użytkownika: {self.user_anwser}"""
         result = runner.run_streamed(starting_agent=agent, input=prompt)
         
         async for step in result.stream_events():
@@ -40,9 +42,10 @@ class AgentWorkflow:
 
         yield {"state": "DONE"}
 
-    async def prepare_agent(self) ->Agent:
+    async def prepare_agent(self,prompt_name,allowed_handoffs) ->Agent:
         try:
-            agent_prompt = await self.mcp_server.session.get_prompt("example_prompt",arguments={"param": "Studenciak"})
+            #todo: dynamic handoffs based on allowed_handoffs
+            agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)
             agent = Agent(
                 name="ExampleAgent",
                 model = self.model,
@@ -69,3 +72,14 @@ class AgentWorkflow:
             return agent
         except Exception as e:
             raise RuntimeError(f"Failed to prepare agent: {e}")
+    async def prepare_welness_agent(self) ->Agent:
+        try:
+            agent_prompt = await self.mcp_server.session.get_prompt("wellness_check_prompt")
+            agent = Agent(
+                name="WellnessCheckAgent",
+                model = self.model,
+                instructions=agent_prompt.messages[0].content.text,
+            )
+            return agent
+        except Exception as e:
+            raise RuntimeError(f"Failed to prepare wellness agent: {e}")
