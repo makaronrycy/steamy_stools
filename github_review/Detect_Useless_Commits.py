@@ -117,10 +117,3 @@ def detect_useless_commits():
             results.append({"sha": sha, "author": author, "problem": "TOO_LITTLE_CHANGES"})
 
     return results
-
-
-# Opcjonalne: test lokalny
-if __name__ == "__main__":
-    data = detect_useless_commits()
-    for item in data:
-        print(item)

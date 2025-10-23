@@ -3,9 +3,11 @@ import subprocess
 import time
 import requests
 import pandas as pd
+from pymongo import MongoClient
 from git import Repo
 from dotenv import load_dotenv
 from Detect_Useless_Commits import detect_useless_commits
+
 load_dotenv()
 
 # --- zmienne środowiskowe ---
@@ -14,6 +16,7 @@ OWNER = os.getenv("OWNER")
 REPO_NAME = os.getenv("REPO_NAME")
 GIT_BRANCH = os.getenv("GIT_BRANCH", "main")
 
+MONGO_URI = os.getenv("MONGO_URI")
 WORKSPACE_DIR = os.path.join(os.getcwd(), "workspace")
 REPO_DIR = os.path.join(WORKSPACE_DIR, "repo")
 
@@ -51,8 +54,6 @@ def load_commits():
         
         page += 1
 
-    print(f"Znaleziono {len(all_commits)} commitów na branchu {GIT_BRANCH}.\n")
-
     df = pd.DataFrame(all_commits)
     df_sorted = df.sort_values(by = 'date', ascending = True).reset_index(drop = True)
 
@@ -68,7 +69,6 @@ def run_sonar_scanner():
     ]
 
     subprocess.run(cmd, check=True)
-    print("✅ Analiza SonarQube zakończona.")
 
 def setup_workspace():
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
@@ -161,34 +161,97 @@ def reset_to_latest_and_detect(repo):
     # Przywracanie repozytorium do najnowszego commita z gałęzi {GIT_BRANCH}
     repo.git.checkout(GIT_BRANCH)
     repo.remotes.origin.pull()
-    
-    # Uruchamianie detekcji bezużytecznych commitów
-    detect_useless_commits()  
+    current_dir = os.getcwd()
+
+    try:
+        os.chdir(REPO_DIR)
+        results = detect_useless_commits()
+
+    finally:
+        os.chdir(current_dir)
+
     return results
     
+def save_to_database(client, data):
+    github_db = client["GitHubDB"]
     
+    useless_commits = github_db["useless_commits"]
+    useless_commits.create_index("sha", unique=True)
+    useless_commits.insert_many(data)
+
+
+def date_preprocessing(data):
+
+    unique_names = data["author"].unique()
+    dfs =[]
+    for name in unique_names:
+        df = data[data['author'] == name].sort_values(by = 'date', ascending = True).reset_index(drop = True)
+        dfs.append(df)
+
+    return dfs, unique_names
+
+
+def metrics_processing(metrics_df):
+   
+   cols = ['bugs','vulnerabilities', 'code_smells', 'duplicated_lines_density']
+
+   metrics_df[cols] = metrics_df[cols].apply(pd.to_numeric, errors='coerce')
+   orig = metrics_df[cols].copy()
+   metrics_df[cols] = metrics_df[cols].diff()
+   metrics_df[cols] = metrics_df[cols].fillna(orig)
+
+
 if __name__ == "__main__":
+
     commits = load_commits()
+    
     setup_workspace()
+    
     repo = clone_repository()
     commits_len = len(commits)
     commit_key = SONAR_PROJECT_KEY
-    results = reset_to_latest_and_detect(repo)
+    
+    useless_commits = reset_to_latest_and_detect(repo)
+    
+    for useless_commit in useless_commits:
+        
+        commits = commits[commits['sha'] != useless_commit['sha']]
+        print("\n", useless_commit)
+    
+    commits.reset_index(drop = True, inplace = True)
+    
+    client = MongoClient(MONGO_URI)
+    #save_to_database(client, useless_commits)
+    
     create_sonar_properties_file(commit_key)
     print(f"Znaleziono {commits_len} commitów.")
     
     
     oldest_commit = commits.iloc[0]["sha"]
     all_metrics = []
-    
     for i in range(commits_len):
+
         commit = commits.iloc[i]["sha"]
         repo.git.checkout(commit)
+
         run_sonar_scanner()
         wait_for_sonar_analysis(commit_key)
         metrics = get_sonar_metrics(commit_key)
-        if i != commits_len - 1:
-            delete_sonar_project(commit_key)
-        print("\n", metrics)
+        metrics["sha"] = commits.iloc[i]["sha"]
+        metrics["author"] = commits.iloc[i]["author"]
+        metrics["date"] = commits.iloc[i]["date"]
+        
+        delete_sonar_project(commit_key)
+
         all_metrics.append(metrics)
-    print("\n", all_metrics)
+        
+
+    dfs_names, unique_names = date_preprocessing(commits)
+
+    metrics_df = pd.DataFrame(all_metrics)
+    metrics_df['date'] = metrics_df['date'].apply(pd.to_datetime, errors = 'coerce')
+    metrics_df.sort_values(by = 'date', ascending = True, inplace = True)
+    
+    metrics_processing(metrics_df)
+
+    print(metrics_df.to_string())

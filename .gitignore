@@ -7,3 +7,4 @@ github_review/venv/
 github_review/.env
 github_review/workspace/
 github_review/README.md
+github_review/requirements.txt
