@@ -149,6 +149,8 @@ Backend Layer:
 - **Monitoring:** Prometheus, Grafana, ELK Stack
 
 ---
+### PRZYKLADOWE WYWOLANIE GUI:
+<img width="902" height="735" alt="image" src="https://github.com/user-attachments/assets/85c014e3-93c9-4adb-a55b-3dcb006a3916" />
 
 
 
