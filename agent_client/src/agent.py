@@ -13,7 +13,7 @@ class AgentWorkflow:
         self.model = "gpt-4o-mini"
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
         yield {"state": "STARTING"}
-        agent = await self.prepare_agent(self.state["prompt_name"],allowed_handoffs=self.state["allowed_handoffs"])
+        agent = await self.prepare_agent(self.state["prompt_name"],self.state.get("allowed_handoffs",[]))
         runner =  Runner()
         prompt = f"""Pytanie: {self.last_question}
                     Odpowiedź użytkownika: {self.user_anwser}"""
@@ -43,7 +43,7 @@ class AgentWorkflow:
 
         yield {"state": "DONE"}
 
-    async def prepare_agent(self,prompt_name,allowed_handoffs) ->Agent:
+    async def prepare_agent(self,prompt_name,allowed_handoffs = None) ->Agent:
         try:
             #todo: dynamic handoffs based on allowed_handoffs
             agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)

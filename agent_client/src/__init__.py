@@ -22,7 +22,7 @@ def get_app() -> Sanic:
         )
         await mcp_server.connect()
 
-        agent_workflow = AgentWorkflow(state=state, mcp_server=mcp_server,user_anwser=user_anwser)
+        agent_workflow = AgentWorkflow(state=state, mcp_server=mcp_server,user_anwser=user_anwser, last_question=last_question)
         question = []
         async for step in agent_workflow.run():
             if step["state"] == "ANSWERING":
