@@ -5,18 +5,23 @@ from agents.mcp import MCPServerStreamableHttp
 from agents import Agent,Runner,handoff
 import logging
 class AgentWorkflow:
-    def __init__(self, user_anwser,last_question, state,mcp_server: MCPServerStreamableHttp):
+    def __init__(self, user_anwser,last_state, state,mcp_server: MCPServerStreamableHttp):
         self.user_anwser = user_anwser
         self.mcp_server = mcp_server
         self.state = state
-        self.last_question = last_question
+        self.last_state = last_state
         self.model = "gpt-4o-mini"
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
         yield {"state": "STARTING"}
-        agent = await self.prepare_agent(self.state["prompt_name"],self.state.get("allowed_handoffs",[]))
+        if self.state.get("name") == "InitialState":
+            agent = await self.prepare_question_agent(self.state["prompt_name"])
+        else:
+            agent = await self.prepare_verification_agent(self.last_state["verification_prompt"],self.state.get("prompt_name",None))
         runner =  Runner()
-        prompt = f"""Pytanie: {self.last_question}
-                    Odpowiedź użytkownika: {self.user_anwser}"""
+        ls = self.last_state if isinstance(self.last_state, dict) else {"question": str(self.last_state or "")}
+        question_text = ls.get("question", "")
+        prompt = f"Pytanie: {question_text}\nOdpowiedź użytkownika: {self.user_anwser}"
+
         result = runner.run_streamed(starting_agent=agent, input=prompt)
         
         async for step in result.stream_events():
@@ -28,7 +33,7 @@ class AgentWorkflow:
                 yield {"state": "THINKING", "thought": step.type}
                 match step.new_agent.name:
                     case "InsultAgent":
-                        yield {"state": "INSULTING"}
+                        yield {"state": "INSULTING"}                    
                     case _:
                         yield {"state": "THINKING"}
             elif step.type == "run_item_stream_event":
@@ -43,18 +48,18 @@ class AgentWorkflow:
 
         yield {"state": "DONE"}
 
-    async def prepare_agent(self,prompt_name,allowed_handoffs = None) ->Agent:
+    async def prepare_verification_agent(self,verification_prompt_name,question_prompt) ->Agent:
         try:
             #todo: dynamic handoffs based on allowed_handoffs
-            agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)
+            agent_prompt = await self.mcp_server.session.get_prompt(verification_prompt_name)
             agent = Agent(
-                name="ExampleAgent",
+                name="VerifyAgent",
                 model = self.model,
                 instructions=agent_prompt.messages[0].content.text,
                 handoffs=[
                     handoff(
-                        tool_name_override="insult_agent",
-                        agent=await self.prepare_insult_agent()
+                        tool_name_override="question_agent",
+                        agent=await self.prepare_question_agent(question_prompt)
                     )
                 ],
                 mcp_servers=[self.mcp_server],
@@ -62,25 +67,17 @@ class AgentWorkflow:
             return agent
         except Exception as e:
             raise RuntimeError(f"Failed to prepare agent: {e}")
-    async def prepare_insult_agent(self) ->Agent:
+        
+    async def prepare_question_agent(self,prompt_name) ->Agent:
         try:
-            agent_prompt = await self.mcp_server.session.get_prompt("insult_prompt")
+            #todo: dynamic handoffs based on allowed_handoffs
+            agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)
             agent = Agent(
-                name="InsultAgent",
+                name="QuestionAgent",
                 model = self.model,
                 instructions=agent_prompt.messages[0].content.text,
+                mcp_servers=[self.mcp_server],
             )
             return agent
         except Exception as e:
             raise RuntimeError(f"Failed to prepare agent: {e}")
-    async def prepare_welness_agent(self) ->Agent:
-        try:
-            agent_prompt = await self.mcp_server.session.get_prompt("wellness_check_prompt")
-            agent = Agent(
-                name="WellnessCheckAgent",
-                model = self.model,
-                instructions=agent_prompt.messages[0].content.text,
-            )
-            return agent
-        except Exception as e:
-            raise RuntimeError(f"Failed to prepare wellness agent: {e}")

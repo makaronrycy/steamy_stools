@@ -1,18 +1,21 @@
 
 
 AVAILABLE_STATES = {
-    "initial":{
+    "initial": {
         "name": "InitialState",
         "description": "The initial state of the agent workflow.",
         "allowed_tools": [],
         "prompt_name": "initial_prompt",
-        "question": "What is your name?"
+        "verification_prompt_name": "verification_prompt",
+        "question": "Cześć! Jak masz na imię?"
     },
-    "":{
-        "name": "WellnessCheckState",
-        "description": "Checks how well the user is doing.",
+    "mood": {
+        "name": "MoodState",
+        "description": "Asks about how the user feels.",
         "allowed_tools": [],
-        "prompt_name": "wellness_check_prompt",
-        "question": "How are you feeling today?"
+        "prompt_name": "mood_question_prompt",
+        "verification_prompt_name": "mood_classify_prompt",
+        "question": "Jak się dziś czujesz?"
     }
 }
+
