@@ -13,6 +13,7 @@ def get_app() -> Sanic:
         state_key = data.get("state", "initial")
         state = AVAILABLE_STATES.get(state_key, AVAILABLE_STATES["initial"])
         user_anwser = data.get("anwser", "No anwser for last question.")
+        last_question = data.get("last_question", "No question available.")
 
         mcp_server = MCPServerStreamableHttp(
             params=MCPServerStreamableHttpParams(

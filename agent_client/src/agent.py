@@ -5,16 +5,17 @@ from agents.mcp import MCPServerStreamableHttp
 from agents import Agent,Runner,handoff
 import logging
 class AgentWorkflow:
-    def __init__(self, user_anwser, state,mcp_server: MCPServerStreamableHttp):
+    def __init__(self, user_anwser,last_question, state,mcp_server: MCPServerStreamableHttp):
         self.user_anwser = user_anwser
         self.mcp_server = mcp_server
         self.state = state
+        self.last_question = last_question
         self.model = "gpt-4o-mini"
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
         yield {"state": "STARTING"}
         agent = await self.prepare_agent(self.state["prompt_name"],allowed_handoffs=self.state["allowed_handoffs"])
         runner =  Runner()
-        prompt = f"""Pytanie: {self.state["last_question"]}
+        prompt = f"""Pytanie: {self.last_question}
                     Odpowiedź użytkownika: {self.user_anwser}"""
         result = runner.run_streamed(starting_agent=agent, input=prompt)
         
