@@ -25,8 +25,68 @@ class Neo4jRetriever:
         
     def close(self):
         self.driver.close()
+    
+    def set_self_grade(
+        self, 
+        grading_person_id: str,
+        grade: float,
+        description: str,
+    ):
+        pass
 
+    def set_teammate_grade(
+        self, 
+        grading_person_id: str,
+        graded_person_id: str,
+        grade: float,
+        description: str,
+    ):
+        pass
+
+    def set_leader_grade(
+        self, 
+        grading_person_id: str,
+        project_id: str,
+        description: str,
+    ):
+        pass
+
+if __name__ == "__main__":
+    # Inicjalizacja
+    retriever = Neo4jRetriever(
+        uri="bolt://localhost:7687",
+        username="neo4j",
+        password="your_password"
+    )
+    
+    try:
+        # Samoocena
+        retriever.set_self_grade(
+            grading_person_id = "",
+            grade = "4.5",
+            description = "Dobra praca, ale mogę się jeszcze poprawić",
+        )
         
+        # Ocena kolegi
+        retriever.set_teammate_grade(
+            grading_person_id = "",
+            graded_person_id = "",
+            grade = 3.5,
+            description="Solidna praca, ale wymaga poprawy w niektórych obszarach",
+        )
+        
+        # Ocena lidera
+        retriever.set_leader_grade(
+            grading_person_id = "",
+            project_id = "",
+            description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki",
+        )
+        
+        print("Oceny zapisane pomyślnie!")
+        
+    finally:
+        retriever.close()
+
 # if __name__ == "__main__":
        
 #     retriever = Neo4jRetriever()
