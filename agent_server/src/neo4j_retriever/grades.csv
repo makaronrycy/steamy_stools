@@ -1,0 +1,6 @@
+type,grader_id,project_id,graded_id,grade,explanation
+self_assessment,2001,1,,4.5,"Pracowalem regularnie"
+teammate_assessment,2001,1,2003,4.0,"Dobra współpraca"
+leadership_assessment,2002,1,2001,4.5,"Lider dobrze organizował"
+project_assessment,2003,1,,5.0,"Projekt spełnił wymagania"
+objectives_assessment,2001,1,,4.2,"Założenia były jasno spelnione"
