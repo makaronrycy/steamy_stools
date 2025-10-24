@@ -237,6 +237,75 @@ class Neo4jRetriever:
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL DATABASE-------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    def fill_database_with_grades(self, csv_path: str):
+        """
+        Wczytuje wszystkie oceny z pliku CSV i dodaje je do bazy Neo4j.
+
+        Args:
+            csv_path (str): ścieżka do pliku CSV zawierającego kolumny:
+                type, grader_id, project_id, graded_id, grade, explanation
+        """
+        import csv
+
+        with open(csv_path, 'r', encoding='utf-8') as file:
+            csv_reader = csv.DictReader(file)
+            count = 0
+
+            for row in csv_reader:
+                grade_type = row['type'].strip()
+                grader_id = int(row['grader_id'])
+                project_id = int(row['project_id']) if row['project_id'] else None
+                graded_id = int(row['graded_id']) if row['graded_id'] else None
+                grade = int(float(row['grade']))  # na wszelki wypadek konwersja float→int
+                explanation = row['explanation'].strip()
+
+                try:
+                    if grade_type == "self_assessment":
+                        self.set_self_grade(
+                            grading_person_index=grader_id,
+                            grade=grade,
+                            description=explanation
+                        )
+
+                    elif grade_type == "teammate_assessment" and graded_id:
+                        self.set_teammate_grade(
+                            grading_person_index=grader_id,
+                            graded_person_index=graded_id,
+                            grade=grade,
+                            description=explanation
+                        )
+
+                    elif grade_type == "leadership_assessment":
+                        self.set_leader_grade(
+                            grading_person_index=grader_id,
+                            project_id=project_id,
+                            grade=grade,
+                            description=explanation
+                        )
+
+                    elif grade_type == "project_assessment":
+                        self.set_project_grade(
+                            grading_person_index=grader_id,
+                            project_id=project_id,
+                            grade=grade,
+                            description=explanation
+                        )
+
+                    elif grade_type == "objectives_assessment":
+                        self.set_project_objectives_grade(
+                            grading_person_index=grader_id,
+                            project_id=project_id,
+                            grade=grade,
+                            description=explanation
+                        )
+
+                    count += 1
+                    print(f"[{count}]  Zapisano ocenę typu '{grade_type}' od {grader_id}")
+
+                except Exception as e:
+                    print(f" Błąd przy zapisie oceny typu '{grade_type}' od {grader_id}: {e}")
+
+        print(f"Zakończono! Wczytano {count} ocen z pliku '{csv_path}'")
 
     def fill_database_no_grades(self, csv_path: str):
         """
@@ -313,17 +382,17 @@ if __name__ == "__main__":
 #----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    #print(retriever.get_students()) 
+    print(retriever.get_students())
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------SET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    #print(retriever.set_self_grade(grading_person_index = 2003, grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
-    #print(retriever.set_teammate_grade(grading_person_index = 2003, graded_person_index = 2001, grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
-    #print(retriever.set_leader_grade(grading_person_index = 2003, project_id = 2, grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
-    #print(retriever.set_project_grade(grading_person_index=2003, project_id=2, grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
-    #print(retriever.set_project_objectives_grade(grading_person_index=2001, project_id=2, grade=5.0, description="Założenia były jasno określone i realistyczne"))
+    # print(retriever.set_self_grade(grading_person_index = 2003, grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
+    # print(retriever.set_teammate_grade(grading_person_index = 2003, graded_person_index = 2001, grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
+    #  print(retriever.set_leader_grade(grading_person_index = 2003, project_id = 2, grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
+    # print(retriever.set_project_grade(grading_person_index=2003, project_id=2, grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
+    # print(retriever.set_project_objectives_grade(grading_person_index=2001, project_id=2, grade=5.0, description="Założenia były jasno określone i realistyczne"))
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -331,5 +400,5 @@ if __name__ == "__main__":
 
     #retriever.clear_database()
     #retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
-
+  #  retriever.fill_database_with_grades("grades.csv")
     retriever.close() # destroy retriever
