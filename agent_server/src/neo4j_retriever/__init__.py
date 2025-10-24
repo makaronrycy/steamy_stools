@@ -234,6 +234,77 @@ class Neo4jRetriever:
             )
             return result.single()
 
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------FILL DATABASE-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def fill_database_no_grades(self, csv_path: str):
+        """
+        Wypełnij bazę danych studentami i projektami z pliku CSV
+        
+        Args:
+            csv_path: Ścieżka do pliku CSV
+        
+        Format CSV:
+            nr_indeksu,imie,nazwisko,github,projekt_id,projekt_nazwa,rola
+        """
+        import csv
+        
+        with self.driver.session() as session:
+            # Najpierw wyczyść bazę (opcjonalnie - odkomentuj jeśli chcesz)
+            # session.run("MATCH (n) DETACH DELETE n")
+            
+            with open(csv_path, 'r', encoding='utf-8') as file:
+                csv_reader = csv.DictReader(file)
+                
+                for row in csv_reader:
+                    # Utwórz projekt (jeśli nie istnieje)
+                    session.run("""
+                        MERGE (p:Projekt {id: $projekt_id})
+                        ON CREATE SET p.nazwa = $projekt_nazwa
+                    """,
+                        projekt_id=int(row['projekt_id']),
+                        projekt_nazwa=row['projekt_nazwa']
+                    )
+                    
+                    # Utwórz studenta
+                    session.run("""
+                        MERGE (s:Student {nr_indeksu: $nr_indeksu})
+                        ON CREATE SET 
+                            s.imie = $imie,
+                            s.nazwisko = $nazwisko,
+                            s.github = $github
+                    """,
+                        nr_indeksu=int(row['nr_indeksu']),
+                        imie=row['imie'],
+                        nazwisko=row['nazwisko'],
+                        github=row['github']
+                    )
+                    
+                    # Utwórz relację NALEŻY_DO
+                    session.run("""
+                        MATCH (s:Student {nr_indeksu: $nr_indeksu})
+                        MATCH (p:Projekt {id: $projekt_id})
+                        MERGE (s)-[r:NALEŻY_DO]->(p)
+                        ON CREATE SET r.rola = $rola
+                    """,
+                        nr_indeksu=int(row['nr_indeksu']),
+                        projekt_id=int(row['projekt_id']),
+                        rola=row['rola']
+                    )
+            
+            print("Baza danych została wypełniona pomyślnie!")
+
+    def clear_database(self):
+        """
+        Wyczyść całą bazę danych (UWAGA: usuwa wszystkie dane!)
+        """
+        with self.driver.session() as session:
+            result = session.run("MATCH (n) DETACH DELETE n RETURN count(n) as deleted")
+            deleted_count = result.single()['deleted']
+            print(f"Usunięto {deleted_count} węzłów wraz z relacjami")
+
+
 #test functions for methods
 if __name__ == "__main__":   
     retriever = Neo4jRetriever() # initialize retriever
@@ -258,6 +329,7 @@ if __name__ == "__main__":
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# TO DO
+    #retriever.clear_database()
+    #retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
 
     retriever.close() # destroy retriever

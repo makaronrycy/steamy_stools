@@ -1,0 +1,11 @@
+nr_indeksu,imie,nazwisko,github,projekt_id,projekt_nazwa,rola
+2001,Jan,Kowalski,https://github.com/jan-kowalski,1,System zarządzania zadaniami,lider
+2002,Anna,Nowak,https://github.com/anna-nowak,1,System zarządzania zadaniami,członek
+2003,Piotr,Wiśniewski,https://github.com/piotr-wisniewski,1,System zarządzania zadaniami,członek
+2004,Maria,Kowalczyk,https://github.com/maria-kowalczyk,1,System zarządzania zadaniami,członek
+2005,Tomasz,Kamiński,https://github.com/tomasz-kaminski,1,System zarządzania zadaniami,członek
+2006,Katarzyna,Lewandowska,https://github.com/katarzyna-lewandowska,2,Aplikacja do nauki języków,lider
+2007,Michał,Zieliński,https://github.com/michal-zielinski,2,Aplikacja do nauki języków,członek
+2008,Magdalena,Szymańska,https://github.com/magdalena-szymanska,2,Aplikacja do nauki języków,członek
+2009,Jakub,Woźniak,https://github.com/jakub-wozniak,2,Aplikacja do nauki języków,członek
+2010,Alicja,Dąbrowska,https://github.com/alicja-dabrowska,2,Aplikacja do nauki języków,członek
