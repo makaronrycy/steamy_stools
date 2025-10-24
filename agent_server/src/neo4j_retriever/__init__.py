@@ -25,8 +25,8 @@ class Neo4jRetriever:
     
     def get_students(self):
         with self.driver.session() as session:
-            result = session.run("MATCH (s:Student) RETURN s.imie AS imie, s.nazwisko AS nazwisko, s.nr_indeksu AS nr_indeksu")
-            return [{"imie": record["imie"], "nazwisko": record["nazwisko"], "nr_indeksu": record["nr_indeksu"]} for record in result]
+            result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
+            return [{"name": record["name"], "surname": record["surname"], "index": record["index"]} for record in result]
         
     def close(self):
         self.driver.close()
@@ -51,18 +51,18 @@ class Neo4jRetriever:
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (student:Student {nr_indeksu: $grading_person_index})
-                CREATE (student)-[:WYKONAŁ]->(o:Odpowiedź {
-                    typ_pytania: "ocena_własna",
-                    ocena: $grade,
-                    uzasadnienie: $description
-                })-[:DOTYCZY]->(student)
-                RETURN student.imie as imie, 
-                    student.nazwisko as nazwisko,
-                    student.nr_indeksu as nr_indeksu,
-                    o.typ_pytania,
-                    o.ocena, 
-                    o.uzasadnienie
+                MATCH (student:Student {index: $grading_person_index})
+                CREATE (student)-[:answered]->(o:Answer {
+                    question_type: "self_assessment",
+                    grade: $grade,
+                    explanation: $description
+                })-[:refers_to]->(student)
+                RETURN student.name as name, 
+                    student.surname as surname,
+                    student.index as index,
+                    o.question_type,
+                    o.grade, 
+                    o.explanation
             """,
                 grading_person_index=grading_person_index,
                 grade=grade,
@@ -88,19 +88,19 @@ class Neo4jRetriever:
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (autor:Student {nr_indeksu: $grading_person_index}),
-                    (oceniany:Student {nr_indeksu: $graded_person_index})
-                CREATE (autor)-[:WYKONAŁ]->(o:Odpowiedź {
-                    typ_pytania: "ocena_członka",
-                    ocena: $grade,
-                    uzasadnienie: $description
-                })-[:DOTYCZY]->(oceniany)
-                RETURN autor.imie as kto_ocenił, 
-                    autor.nazwisko as nazwisko_autora,
-                    oceniany.imie as kogo_ocenił,
-                    oceniany.nazwisko as nazwisko_ocenianego,
-                    o.ocena, 
-                    o.uzasadnienie
+                MATCH (autor:Student {index: $grading_person_index}),
+                    (oceniany:Student {index: $graded_person_index})
+                CREATE (autor)-[:answered]->(o:Answer {
+                    question_type: "teammate_assessment",
+                    grade: $grade,
+                    explanation: $description
+                })-[:refers_to]->(oceniany)
+                RETURN autor.name as grader_name, 
+                    autor.surname as grader_surname,
+                    oceniany.name as graded_name,
+                    oceniany.surname as graded_surname,
+                    o.grade, 
+                    o.explanation
             """,
                 grading_person_index=grading_person_index,
                 graded_person_index=graded_person_index,
@@ -112,38 +112,38 @@ class Neo4jRetriever:
     def set_leader_grade(
         self, 
         grading_person_index: int,
-        project_id: int,  # ID projektu, którego lidera oceniamy
+        project_id: int,
         grade: float,
         description: str,
     ):
         """
-        Zapisz ocenę lidera projektu
+        Save project leader assessment
         
         Args:
-            grading_person_index: Numer indeksu osoby oceniającej
-            project_id: ID projektu, którego lidera oceniamy
-            grade: Ocena zarządzania (np. 2-5)
-            description: Uzasadnienie oceny
+            grading_person_index: Index number of the person grading
+            project_id: ID of the project whose leader is being assessed
+            grade: Grade for leadership (e.g. 2-5)
+            description: Justification for the grade
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (oceniajacy:Student {nr_indeksu: $grading_person_index})
-                MATCH (lider:Student)-[r:NALEŻY_DO]->(projekt:Projekt {id: $project_id})
-                WHERE r.rola = "lider"
-                CREATE (oceniajacy)-[:WYKONAŁ]->(o:Odpowiedź {
-                    typ_pytania: "ocena_zarządzania",
-                    ocena: $grade,
-                    uzasadnienie: $description
-                })-[:DOTYCZY]->(lider)
-                RETURN oceniajacy.imie as kto_ocenił,
-                    oceniajacy.nazwisko as nazwisko_oceniajacego,
-                    lider.imie as lider_imie,
-                    lider.nazwisko as lider_nazwisko,
-                    lider.nr_indeksu as lider_nr_indeksu,
-                    projekt.id as projekt_id,
-                    projekt.nazwa as projekt_nazwa,
-                    o.ocena,
-                    o.uzasadnienie
+                MATCH (grader:Student {index: $grading_person_index})
+                MATCH (leader:Student)-[r:belongs_to]->(project:Project {id: $project_id})
+                WHERE r.role = "leader"
+                CREATE (grader)-[:answered]->(a:Answer {
+                    question_type: "leadership_assessment",
+                    grade: $grade,
+                    explanation: $description
+                })-[:refers_to]->(leader)
+                RETURN grader.name as grader_name,
+                    grader.surname as grader_surname,
+                    leader.name as leader_name,
+                    leader.surname as leader_surname,
+                    leader.index as leader_index,
+                    project.id as project_id,
+                    project.name as project_name,
+                    a.grade,
+                    a.explanation
             """,
                 grading_person_index=grading_person_index,
                 project_id=project_id,
@@ -160,31 +160,31 @@ class Neo4jRetriever:
         description: str,
     ):
         """
-        Zapisz ocenę projektu
+        Save project assessment
         
         Args:
-            grading_person_index: Numer indeksu osoby oceniającej
-            project_id: ID projektu
-            grade: Ocena projektu (np. 2-5)
-            description: Uzasadnienie oceny
+            grading_person_index: Index number of the person grading
+            project_id: ID of the project
+            grade: Grade for the project (e.g. 2-5)
+            description: Justification for the grade
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (student:Student {nr_indeksu: $grading_person_index})
-                MATCH (projekt:Projekt {id: $project_id})
-                CREATE (student)-[:WYKONAŁ]->(o:Odpowiedź {
-                    typ_pytania: "ocena_projektu",
-                    ocena: $grade,
-                    uzasadnienie: $description
-                })-[:DOTYCZY]->(projekt)
-                RETURN student.imie as kto_ocenił,
-                    student.nazwisko as nazwisko_oceniajacego,
-                    student.nr_indeksu as nr_indeksu,
-                    projekt.id as projekt_id,
-                    projekt.nazwa as projekt_nazwa,
-                    o.typ_pytania,
-                    o.ocena,
-                    o.uzasadnienie
+                MATCH (student:Student {index: $grading_person_index})
+                MATCH (project:Project {id: $project_id})
+                CREATE (student)-[:answered]->(a:Answer {
+                    question_type: "project_assessment",
+                    grade: $grade,
+                    explanation: $description
+                })-[:refers_to]->(project)
+                RETURN student.name as grader_name,
+                    student.surname as grader_surname,
+                    student.index as grader_index,
+                    project.id as project_id,
+                    project.name as project_name,
+                    a.question_type,
+                    a.grade,
+                    a.explanation
             """,
                 grading_person_index=grading_person_index,
                 project_id=project_id,
@@ -201,31 +201,31 @@ class Neo4jRetriever:
         description: str,
     ):
         """
-        Zapisz ocenę założeń projektu
+        Save project objectives assessment
         
         Args:
-            grading_person_index: Numer indeksu osoby oceniającej
-            project_id: ID projektu
-            grade: Ocena założeń projektu (np. 2-5)
-            description: Uzasadnienie oceny
+            grading_person_index: Index number of the person grading
+            project_id: ID of the project
+            grade: Grade for project objectives (e.g. 2-5)
+            description: Justification for the grade
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (student:Student {nr_indeksu: $grading_person_index})
-                MATCH (projekt:Projekt {id: $project_id})
-                CREATE (student)-[:WYKONAŁ]->(o:Odpowiedź {
-                    typ_pytania: "ocena_założeń",
-                    ocena: $grade,
-                    uzasadnienie: $description
-                })-[:DOTYCZY]->(projekt)
-                RETURN student.imie as kto_ocenił,
-                    student.nazwisko as nazwisko_oceniajacego,
-                    student.nr_indeksu as nr_indeksu,
-                    projekt.id as projekt_id,
-                    projekt.nazwa as projekt_nazwa,
-                    o.typ_pytania,
-                    o.ocena,
-                    o.uzasadnienie
+                MATCH (student:Student {index: $grading_person_index})
+                MATCH (project:Project {id: $project_id})
+                CREATE (student)-[:answered]->(a:Answer {
+                    question_type: "objectives_assessment",
+                    grade: $grade,
+                    explanation: $description
+                })-[:refers_to]->(project)
+                RETURN student.name as grader_name,
+                    student.surname as grader_surname,
+                    student.index as grader_index,
+                    project.id as project_id,
+                    project.name as project_name,
+                    a.question_type,
+                    a.grade,
+                    a.explanation
             """,
                 grading_person_index=grading_person_index,
                 project_id=project_id,
@@ -246,7 +246,7 @@ class Neo4jRetriever:
             csv_path: Ścieżka do pliku CSV
         
         Format CSV:
-            nr_indeksu,imie,nazwisko,github,projekt_id,projekt_nazwa,rola
+            index,name,surname,github,project_id,project_name,role
         """
         import csv
         
@@ -260,37 +260,37 @@ class Neo4jRetriever:
                 for row in csv_reader:
                     # Utwórz projekt (jeśli nie istnieje)
                     session.run("""
-                        MERGE (p:Projekt {id: $projekt_id})
-                        ON CREATE SET p.nazwa = $projekt_nazwa
+                        MERGE (p:Project {id: $project_id})
+                        ON CREATE SET p.name = $project_name
                     """,
-                        projekt_id=int(row['projekt_id']),
-                        projekt_nazwa=row['projekt_nazwa']
+                        project_id=int(row['project_id']),
+                        project_name=row['project_name']
                     )
                     
                     # Utwórz studenta
                     session.run("""
-                        MERGE (s:Student {nr_indeksu: $nr_indeksu})
+                        MERGE (s:Student {index: $index})
                         ON CREATE SET 
-                            s.imie = $imie,
-                            s.nazwisko = $nazwisko,
+                            s.name = $name,
+                            s.surname = $surname,
                             s.github = $github
                     """,
-                        nr_indeksu=int(row['nr_indeksu']),
-                        imie=row['imie'],
-                        nazwisko=row['nazwisko'],
+                        index=int(row['index']),
+                        name=row['name'],
+                        surname=row['surname'],
                         github=row['github']
                     )
                     
-                    # Utwórz relację NALEŻY_DO
+                    # Utwórz relację belongs_to
                     session.run("""
-                        MATCH (s:Student {nr_indeksu: $nr_indeksu})
-                        MATCH (p:Projekt {id: $projekt_id})
-                        MERGE (s)-[r:NALEŻY_DO]->(p)
-                        ON CREATE SET r.rola = $rola
+                        MATCH (s:Student {index: $index})
+                        MATCH (p:Project {id: $project_id})
+                        MERGE (s)-[r:belongs_to]->(p)
+                        ON CREATE SET r.role = $role
                     """,
-                        nr_indeksu=int(row['nr_indeksu']),
-                        projekt_id=int(row['projekt_id']),
-                        rola=row['rola']
+                        index=int(row['index']),
+                        project_id=int(row['project_id']),
+                        role=row['role']
                     )
             
             print("Baza danych została wypełniona pomyślnie!")
