@@ -251,13 +251,27 @@ class Neo4jRetriever:
             csv_reader = csv.DictReader(file)
             count = 0
 
+
             for row in csv_reader:
-                grade_type = row['type'].strip()
-                grader_id = int(row['grader_id'])
-                project_id = int(row['project_id']) if row['project_id'] else None
-                graded_id = int(row['graded_id']) if row['graded_id'] else None
-                grade = int(float(row['grade']))  # na wszelki wypadek konwersja float→int
-                explanation = row['explanation'].strip()
+                # Pomijamy wiersze z komentarzami lub puste wiersze
+                if not row.get('type') or row['type'].strip().startswith('#'):
+                    continue
+                
+                # Pomijamy wiersze bez wymaganych danych
+                if not row.get('grader_id') or not row.get('grade'):
+                    print(f"⚠️  Pomijam wiersz z brakującymi danymi: {row}")
+                    continue
+                
+                try:
+                    grade_type = row['type'].strip()
+                    grader_id = int(row['grader_id'])
+                    project_id = int(row['project_id']) if row.get('project_id') and row['project_id'].strip() else None
+                    graded_id = int(row['graded_id']) if row.get('graded_id') and row['graded_id'].strip() else None
+                    grade = float(row['grade'])
+                    explanation = row.get('explanation', '').strip()
+                except (ValueError, TypeError) as e:
+                    print(f"⚠️  Błąd konwersji danych w wierszu: {row}. Błąd: {e}")
+                    continue
 
                 try:
                     if grade_type == "self_assessment":
@@ -382,7 +396,7 @@ if __name__ == "__main__":
 #----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    print(retriever.get_students())
+    #print(retriever.get_students())
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------SET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -398,7 +412,7 @@ if __name__ == "__main__":
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    #retriever.clear_database()
-    #retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
-  #  retriever.fill_database_with_grades("grades.csv")
+    retriever.clear_database()
+    retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
+    retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
     retriever.close() # destroy retriever
