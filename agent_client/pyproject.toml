@@ -15,13 +15,6 @@ dependencies = [
     'langfuse',
     'pydantic-ai[logfire]',
     'nest_asyncio',
-    "opentelemetry-sdk (>=1.35.0,<2.0.0)",
-    "opentelemetry-api (>=1.35.0,<2.0.0)",
-    "opentelemetry-propagator-b3 (>=1.35.0,<2.0.0)",
-    "opentelemetry-instrumentation",
-    "opentelemetry-instrumentation-requests",
-    "opentelemetry-instrumentation-aiohttp-client",
-
     "neo4j"
 
 ]
