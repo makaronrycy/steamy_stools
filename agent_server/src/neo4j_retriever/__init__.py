@@ -259,7 +259,7 @@ class Neo4jRetriever:
                 
                 # Pomijamy wiersze bez wymaganych danych
                 if not row.get('grader_id') or not row.get('grade'):
-                    print(f"⚠️  Pomijam wiersz z brakującymi danymi: {row}")
+                    print(f"Pomijam wiersz z brakującymi danymi: {row}")
                     continue
                 
                 try:
@@ -270,7 +270,7 @@ class Neo4jRetriever:
                     grade = float(row['grade'])
                     explanation = row.get('explanation', '').strip()
                 except (ValueError, TypeError) as e:
-                    print(f"⚠️  Błąd konwersji danych w wierszu: {row}. Błąd: {e}")
+                    print(f"Błąd konwersji danych w wierszu: {row}. Błąd: {e}")
                     continue
 
                 try:
@@ -396,7 +396,7 @@ if __name__ == "__main__":
 #----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    #print(retriever.get_students())
+    # print(retriever.get_students())
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------SET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -404,7 +404,7 @@ if __name__ == "__main__":
 
     # print(retriever.set_self_grade(grading_person_index = 2003, grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
     # print(retriever.set_teammate_grade(grading_person_index = 2003, graded_person_index = 2001, grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
-    #  print(retriever.set_leader_grade(grading_person_index = 2003, project_id = 2, grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
+    # print(retriever.set_leader_grade(grading_person_index = 2003, project_id = 2, grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
     # print(retriever.set_project_grade(grading_person_index=2003, project_id=2, grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
     # print(retriever.set_project_objectives_grade(grading_person_index=2001, project_id=2, grade=5.0, description="Założenia były jasno określone i realistyczne"))
 
@@ -412,7 +412,7 @@ if __name__ == "__main__":
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    retriever.clear_database()
-    retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
-    retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
+    # retriever.clear_database()
+    # retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
+    # retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
     retriever.close() # destroy retriever
