@@ -619,224 +619,31 @@ class Neo4jRetriever:
             print(f"Deleted {deleted_count} nodes with relationships")
 
 
-# Complete test suite for Neo4j retriever
+#test functions for methods
 if __name__ == "__main__":   
-    retriever = Neo4jRetriever() # Initialize retriever
-
-    print("=" * 80)
-    print("COMPLETE NEO4J RETRIEVER TEST SUITE")
-    print("=" * 80)
+    retriever = Neo4jRetriever() # initialize retriever
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#----------------STEP 1: DATABASE INITIALIZATION------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    print("\n🔄 STEP 1: DATABASE INITIALIZATION")
-    print("-" * 50)
-    
-    print("1.1 Clearing existing database...")
-    try:
-        retriever.clear_database()
-        print("✅ Database cleared successfully")
-    except Exception as e:
-        print(f"❌ Error clearing database: {e}")
-
-    print("\n1.2 Loading students and projects from CSV...")
-    try:
-        script_dir = Path(__file__).parent
-        data_file = script_dir / "data_no_grades.csv"
-        retriever.fill_database_no_grades(str(data_file))
-        print("✅ Students and projects loaded successfully")
-    except Exception as e:
-        print(f"❌ Error loading base data: {e}")
-
-    print("\n1.3 Loading grades from CSV...")
-    try:
-        script_dir = Path(__file__).parent
-        grades_file = script_dir / "grades.csv"
-        retriever.fill_database_with_grades(str(grades_file))
-        print("✅ Grades loaded successfully")
-    except Exception as e:
-        print(f"❌ Error loading grades: {e}")
+    # print(retriever.get_students())
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#----------------STEP 2: BASIC DATA VERIFICATION------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------SET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    print("\n\n📊 STEP 2: BASIC DATA VERIFICATION")
-    print("-" * 50)
-
-    print("\n2.1 Testing get_students():")
-    try:
-        students = retriever.get_students()
-        print(f"✅ Found {len(students)} students")
-        if students:
-            print(f"   First student: {students[0]}")
-            print(f"   Last student: {students[-1]}")
-    except Exception as e:
-        print(f"❌ Error: {e}")
-
-    print("\n2.2 Testing project members:")
-    for project_id in [1, 2]:
-        try:
-            members = retriever.get_project_members(project_id=project_id)
-            print(f"✅ Project {project_id} has {len(members)} members: {members}")
-        except Exception as e:
-            print(f"❌ Error getting project {project_id} members: {e}")
+    # print(retriever.set_self_grade(grading_person_index = 2003, grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
+    # print(retriever.set_teammate_grade(grading_person_index = 2003, graded_person_index = 2001, grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
+    # print(retriever.set_leader_grade(grading_person_index = 2003, project_id = 2, grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
+    # print(retriever.set_project_grade(grading_person_index=2003, project_id=2, grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
+    # print(retriever.set_project_objectives_grade(grading_person_index=2001, project_id=2, grade=5.0, description="Założenia były jasno określone i realistyczne"))
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#----------------STEP 3: LEADERSHIP AND USER INFO TESTING--------------------------------------------------------------------------------------------------------------------------------------
+#----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    print("\n\n👑 STEP 3: LEADERSHIP AND USER INFO TESTING")
-    print("-" * 50)
-
-    print("\n3.1 Testing leadership status:")
-    test_indexes = [2001, 2002, 2003, 2006, 2007]
-    leaders_found = []
-    for idx in test_indexes:
-        try:
-            is_leader = retriever.is_leader(index=idx)
-            status = "👑 LEADER" if is_leader else "👤 Member"
-            print(f"   Student {idx}: {status}")
-            if is_leader:
-                leaders_found.append(idx)
-        except Exception as e:
-            print(f"❌ Error testing student {idx}: {e}")
-    
-    print(f"✅ Found {len(leaders_found)} leaders: {leaders_found}")
-
-    print("\n3.2 Testing user info for key students:")
-    for idx in [2001, 2006]:  # One from each project
-        try:
-            user_info = retriever.get_user_info(index=idx)
-            if user_info:
-                print(f"✅ Student {idx}: {user_info['name']} {user_info['surname']}")
-                print(f"   Project: {user_info['project_name']} (ID: {user_info['project_id']})")
-            else:
-                print(f"❌ No info found for student {idx}")
-        except Exception as e:
-            print(f"❌ Error getting info for student {idx}: {e}")
-
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#----------------STEP 4: GRADING DATA VERIFICATION---------------------------------------------------------------------------------------------------------------------------------------------
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    print("\n\n📝 STEP 4: GRADING DATA VERIFICATION")
-    print("-" * 50)
-
-    print("\n4.1 Testing project grades:")
-    for project_id in [1, 2]:
-        try:
-            project_grades = retriever.get_project_grades(project_id=project_id)
-            internal_grades = [g for g in project_grades if g['was_member']]
-            external_grades = [g for g in project_grades if not g['was_member']]
-            
-            print(f"✅ Project {project_id}: {len(project_grades)} total grades")
-            print(f"   - Internal grades (team members): {len(internal_grades)}")
-            print(f"   - External grades (other students): {len(external_grades)}")
-            
-            if project_grades:
-                avg_grade = sum(g['grade'] for g in project_grades) / len(project_grades)
-                print(f"   - Average grade: {avg_grade:.2f}")
-                
-        except Exception as e:
-            print(f"❌ Error getting grades for project {project_id}: {e}")
-
-    print("\n4.2 Testing member grades (teammate assessments):")
-    for idx in [2001, 2003, 2006]:  # Test various students
-        try:
-            member_grades = retriever.get_member_grades(index=idx)
-            leader_grades = [g for g in member_grades if g['is_leader']]
-            
-            print(f"✅ Student {idx}: {len(member_grades)} teammate grades received")
-            print(f"   - Grades from leaders: {len(leader_grades)}")
-            
-            if member_grades:
-                avg_grade = sum(g['grade'] for g in member_grades) / len(member_grades)
-                print(f"   - Average teammate grade: {avg_grade:.2f}")
-                
-        except Exception as e:
-            print(f"❌ Error getting member grades for student {idx}: {e}")
-
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#----------------STEP 5: COMPLETION STATUS TESTING---------------------------------------------------------------------------------------------------------------------------------------------
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    print("\n\n✅ STEP 5: COMPLETION STATUS TESTING")
-    print("-" * 50)
-
-    print("\n5.1 Testing teammate grading completion:")
-    completed_teammate_grading = 0
-    total_students = 0
-    
-    for idx in test_indexes:
-        try:
-            has_graded_all = retriever.has_graded_all_members(index=idx)
-            ungraded = retriever.get_ungraded_members(index=idx)
-            
-            status = "✅ COMPLETE" if has_graded_all else f"❌ INCOMPLETE ({len(ungraded)} ungraded)"
-            print(f"   Student {idx}: {status}")
-            
-            if has_graded_all:
-                completed_teammate_grading += 1
-            total_students += 1
-            
-        except Exception as e:
-            print(f"❌ Error checking completion for student {idx}: {e}")
-    
-    print(f"✅ Teammate grading completion: {completed_teammate_grading}/{total_students} students")
-
-    print("\n5.2 Testing project grading completion:")
-    completed_project_grading = 0
-    
-    for idx in test_indexes:
-        try:
-            has_graded_all_projects = retriever.has_graded_all_projects(index=idx)
-            ungraded_projects = retriever.get_ungraded_projects(index=idx)
-            
-            status = "✅ COMPLETE" if has_graded_all_projects else f"❌ INCOMPLETE ({len(ungraded_projects)} ungraded)"
-            print(f"   Student {idx}: {status}")
-            
-            if has_graded_all_projects:
-                completed_project_grading += 1
-                
-        except Exception as e:
-            print(f"❌ Error checking project completion for student {idx}: {e}")
-    
-    print(f"✅ Project grading completion: {completed_project_grading}/{total_students} students")
-
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-#----------------STEP 6: FINAL SUMMARY----------------------------------------------------------------------------------------------------------------------------------------------------------
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-    print("\n\n🎯 STEP 6: FINAL SUMMARY")
-    print("-" * 50)
-    
-    try:
-        # Final statistics
-        all_students = retriever.get_students()
-        project1_members = retriever.get_project_members(project_id=1)
-        project2_members = retriever.get_project_members(project_id=2)
-        project1_grades = retriever.get_project_grades(project_id=1)
-        project2_grades = retriever.get_project_grades(project_id=2)
-        
-        print(f"📊 Database Statistics:")
-        print(f"   - Total students: {len(all_students)}")
-        print(f"   - Project 1 members: {len(project1_members)}")
-        print(f"   - Project 2 members: {len(project2_members)}")
-        print(f"   - Project 1 grades: {len(project1_grades)}")
-        print(f"   - Project 2 grades: {len(project2_grades)}")
-        print(f"   - Leaders found: {len(leaders_found)}")
-        
-        print(f"\n✅ ALL TESTS COMPLETED SUCCESSFULLY!")
-        print("🚀 Neo4j Retriever is ready for production use!")
-        
-    except Exception as e:
-        print(f"❌ Error generating summary: {e}")
-
-    print("\n" + "=" * 80)
-    print("TEST SUITE FINISHED")
-    print("=" * 80)
-    
-    retriever.close() # Close connection
+    # retriever.clear_database()
+    # retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
+    # retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
+    retriever.close() # destroy retriever
