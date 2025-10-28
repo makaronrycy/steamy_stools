@@ -28,7 +28,7 @@ class Neo4jRetriever:
             result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
             return [{"name": record["name"], "surname": record["surname"], "index": record["index"]} for record in result]
 
-    def get_project_grades(self, project_id: int):
+    def get_project_grades(self, project_id: str):
         """
         Get project grades (id) [all grades with information whether the person was in the project] 
         -> grade, justification, grader_index, was_member
@@ -57,7 +57,7 @@ class Neo4jRetriever:
                     "grader_index": record["grader_index"],
                     "was_member": record["was_member"]} for record in result]
 
-    def get_member_grades(self, index: int):
+    def get_member_grades(self, index: str):
         """
         Get grades for a given member (index) [mark leader grades] 
         -> grade, justification, grader_index, is_leader
@@ -88,7 +88,7 @@ class Neo4jRetriever:
                     "grader_index": record["grader_index"],
                     "is_leader": record["is_leader"]} for record in result]
 
-    def is_leader(self, index: int):
+    def is_leader(self, index: str):
         """
         Check if student is a leader
         
@@ -108,7 +108,7 @@ class Neo4jRetriever:
             record = result.single()
             return record["is_leader"] if record else False
 
-    def get_project_members(self, project_id: int):
+    def get_project_members(self, project_id: str):
         """
         Get all member indexes from a given project
         
@@ -127,7 +127,7 @@ class Neo4jRetriever:
             
             return [record["index"] for record in result]
 
-    def get_user_info(self, index: int):
+    def get_user_info(self, index: str):
         """
         Get user information
         
@@ -159,7 +159,7 @@ class Neo4jRetriever:
                 }
             return None
 
-    def has_graded_all_members(self, index: int):
+    def has_graded_all_members(self, index: str):
         """
         Check if user has graded all team members
         
@@ -184,7 +184,7 @@ class Neo4jRetriever:
             record = result.single()
             return record["has_graded_all"] if record else False
 
-    def get_ungraded_members(self, index: int):
+    def get_ungraded_members(self, index: str):
         """
         Get list of ungraded team members
         
@@ -210,7 +210,7 @@ class Neo4jRetriever:
             
             return [record["ungraded_index"] for record in result]
 
-    def has_graded_all_projects(self, index: int):
+    def has_graded_all_projects(self, index: str):
         """
         Check if user has graded all projects
         
@@ -234,7 +234,7 @@ class Neo4jRetriever:
             record = result.single()
             return record["has_graded_all"] if record else False
 
-    def get_ungraded_projects(self, index: int):
+    def get_ungraded_projects(self, index: str):
         """
         Get list of ungraded projects
         
@@ -268,7 +268,7 @@ class Neo4jRetriever:
 
     def set_self_grade(
         self, 
-        grading_person_index: int,
+        grading_person_index: str,
         grade: float,
         description: str,
     ):
@@ -302,11 +302,11 @@ class Neo4jRetriever:
             return result.single()
 
     def set_teammate_grade(
-    self, 
-    grading_person_index: int,
-    graded_person_index: int,
-    grade: float,
-    description: str,
+        self, 
+        grading_person_index: str,
+        graded_person_index: str,
+        grade: float,
+        description: str,
     ):
         """
         Save team member assessment
@@ -342,8 +342,8 @@ class Neo4jRetriever:
     
     def set_leader_grade(
         self, 
-        grading_person_index: int,
-        project_id: int,
+        grading_person_index: str,
+        project_id: str,
         grade: float,
         description: str,
     ):
@@ -385,8 +385,8 @@ class Neo4jRetriever:
 
     def set_project_grade(
         self, 
-        grading_person_index: int,
-        project_id: int,
+        grading_person_index: str,
+        project_id: str,
         grade: float,
         description: str,
     ):
@@ -426,8 +426,8 @@ class Neo4jRetriever:
 
     def set_project_objectives_grade(
         self, 
-        grading_person_index: int,
-        project_id: int,
+        grading_person_index: str,
+        project_id: str,
         grade: float,
         description: str,
     ):
@@ -495,9 +495,9 @@ class Neo4jRetriever:
                 
                 try:
                     grade_type = row['type'].strip()
-                    grader_id = int(row['grader_id'])
-                    project_id = int(row['project_id']) if row.get('project_id') and row['project_id'].strip() else None
-                    graded_id = int(row['graded_id']) if row.get('graded_id') and row['graded_id'].strip() else None
+                    grader_id = row['grader_id']
+                    project_id = row['project_id'] if row.get('project_id') and row['project_id'].strip() else None
+                    graded_id = row['graded_id'] if row.get('graded_id') and row['graded_id'].strip() else None
                     grade = float(row['grade'])
                     explanation = row.get('explanation', '').strip()
                 except (ValueError, TypeError) as e:
@@ -577,7 +577,7 @@ class Neo4jRetriever:
                         MERGE (p:Project {id: $project_id})
                         ON CREATE SET p.name = $project_name
                     """,
-                        project_id=int(row['project_id']),
+                        project_id=row['project_id'],
                         project_name=row['project_name']
                     )
                     
@@ -589,7 +589,7 @@ class Neo4jRetriever:
                             s.surname = $surname,
                             s.github = $github
                     """,
-                        index=int(row['index']),
+                        index=(row['index']),
                         name=row['name'],
                         surname=row['surname'],
                         github=row['github']
@@ -602,8 +602,8 @@ class Neo4jRetriever:
                         MERGE (s)-[r:belongs_to]->(p)
                         ON CREATE SET r.role = $role
                     """,
-                        index=int(row['index']),
-                        project_id=int(row['project_id']),
+                        index=row['index'],
+                        project_id=row['project_id'],
                         role=row['role']
                     )
             
@@ -611,7 +611,7 @@ class Neo4jRetriever:
 
     def clear_database(self):
         """
-        Clear entire database (WARNING: deletes all data!)
+        Clear entire database
         """
         with self.driver.session() as session:
             result = session.run("MATCH (n) DETACH DELETE n RETURN count(n) as deleted")
@@ -628,22 +628,31 @@ if __name__ == "__main__":
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
     # print(retriever.get_students())
+    # print(retriever.get_project_grades(project_id="2"))
+    # print(retriever.get_member_grades(index="2006"))
+    # print(retriever.is_leader(index="2007"))
+    # print(retriever.get_project_members(project_id="2"))
+    # print(retriever.get_user_info(index="2006"))
+    # print(retriever.has_graded_all_members(index="2007"))
+    # print(retriever.get_ungraded_members(index="2007"))
+    # print(retriever.has_graded_all_projects(index="2007"))
+    # print(retriever.get_ungraded_projects(index="2007"))
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------SET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    # print(retriever.set_self_grade(grading_person_index = 2003, grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
-    # print(retriever.set_teammate_grade(grading_person_index = 2003, graded_person_index = 2001, grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
-    # print(retriever.set_leader_grade(grading_person_index = 2003, project_id = 2, grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
-    # print(retriever.set_project_grade(grading_person_index=2003, project_id=2, grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
-    # print(retriever.set_project_objectives_grade(grading_person_index=2001, project_id=2, grade=5.0, description="Założenia były jasno określone i realistyczne"))
+    # print(retriever.set_self_grade(grading_person_index = "2007", grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
+    # print(retriever.set_teammate_grade(grading_person_index = "2007", graded_person_index = "2006", grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
+    # print(retriever.set_leader_grade(grading_person_index = "2007", project_id = "2", grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
+    # print(retriever.set_project_grade(grading_person_index = "2007", project_id = "2", grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
+    # print(retriever.set_project_objectives_grade(grading_person_index = "2007", project_id = "2", grade=5.0, description="Założenia były jasno określone i realistyczne"))
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    # retriever.clear_database()
-    # retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
-    # retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
+    retriever.clear_database()
+    retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
+    retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
     retriever.close() # destroy retriever
