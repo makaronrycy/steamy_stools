@@ -1,5 +1,7 @@
+from ..neo4j_retriever import Neo4jRetriever
 from .. import MCP_SERVER
-from .models import NameEntity,Message
+from .models import NameEntity, Message, GetProjectGradesRequest, SetSelfGradeRequest
+
 @MCP_SERVER.tool(
     name="example_tool",
     description="An example tool that does something useful.",
@@ -29,5 +31,59 @@ async def check_name_tool(param: NameEntity ) -> str:
             return "FOUND"
         else:
             return "NOT_FOUND"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+    
+@MCP_SERVER.tool(
+    name="get_project_grades_tool",
+    description="Narzędzie pobierające wszystkie oceny dla danego projektu z informacją czy oceniający był członkiem projektu.",
+    tags=set(['retrieval', 'grades', 'project']),
+)
+async def get_project_grades_tool(param: GetProjectGradesRequest) -> str:
+    """
+    Pobiera oceny projektu wraz z informacją o członkostwie oceniającego.
+    """
+    try:
+        retriever = Neo4jRetriever()
+        data = param.model_dump()
+        
+        grades = retriever.get_project_grades(project_id=data['project_id'])
+        retriever.close()
+        
+        if not grades:
+            return f"No grades found for project {data['project_id']}"
+        
+        result = f"Grades for project {data['project_id']}:\n"
+        for grade_info in grades:
+            member_status = "Member" if grade_info['was_member'] else "Non-member"
+            result += f"- Grade: {grade_info['grade']} by {grade_info['grader_index']} ({member_status})\n"
+            result += f"  Explanation: {grade_info['explanation']}\n"
+        
+        return result
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+    
+@MCP_SERVER.tool(
+    name="set_self_grade_tool",
+    description="Narzędzie do ustawiania samooceny studenta.",
+    tags=set(['grading', 'self-assessment', 'database']),
+)
+async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
+    """
+    Ustawia samoocenę studenta.
+    """
+    try:
+        retriever = Neo4jRetriever()
+        data = param.model_dump()
+        
+        result = retriever.set_self_grade(
+            grading_person_index=data['grading_person_index'],
+            grade=data['grade'],
+            description=data['description']
+        )
+        
+        retriever.close()
+        
+        return f"SUCCESS: Self-grade {data['grade']} set for student {data['grading_person_index']}"
     except Exception as e:
         return f"ERROR: {str(e)}"

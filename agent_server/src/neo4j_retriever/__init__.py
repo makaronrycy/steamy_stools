@@ -963,7 +963,7 @@ if __name__ == "__main__":
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    retriever.clear_database()
-    retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
-    retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
+    # retriever.clear_database()
+    # retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
+    # retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
     retriever.close() # destroy retriever
