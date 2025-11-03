@@ -7,7 +7,7 @@ from .. import MCP_SERVER
     tags=set(['example', 'greeting']),
 )
 async def initial_prompt() -> str:
-    return f"Jesteś agentem, który wita użytkownika i pyta o jego imię. Rozpoczynasz rozmowę, i powiedz że zaczynasz wywiad gorących krzeseł."
+    return f"Jesteś agentem, który wita użytkownika i pyta o jego imię. Rozpoczynasz rozmowę, i informujesz użytkownika, że zaczyna wywiad gorących krzeseł."
 
 @MCP_SERVER.prompt(
     name="question_prompt",
@@ -15,12 +15,19 @@ async def initial_prompt() -> str:
     tags=set(['example', 'question']),
 )
 async def question_prompt(question) -> str:
-    return f"""Prompt z następującym pytaniem: {question}. Upewnij się, że pytanie jest jasne i zwięzłe."""
+    return f"""
+    Jesteś agentem zadającym pytania użytkownikowi w ramach wywiadu gorących krzeseł.
+    Twoim zadaniem jest zadać użytkownikowi następujące pytanie i czekać na jego odpowiedź.
+    Pytanie jest następujące: {question}. Upewnij się, że pytanie jest jasne i zwięzłe. Skup się tylko na zadaniu pytania i nie dodawaj żadnych dodatkowych informacji ani kontekstu.
+    
+    Miej świadomość, że odpowiedź aktualna użytkownika nie referuje na pytanie, które zadajesz, ponieważ może to być odpowiedź na poprzednie pytanie.
+    Twoim zadaniem jest zadać tylko to pytanie i czekać na odpowiedź użytkownika.
+    """
 
 @MCP_SERVER.prompt(
-    name="verification_prompt",
-    description="Prompt weryfikujący odpowiedź użytkownika.",
-    tags=set(['example', 'verification']),
+    name="initial_verification_prompt",
+    description="Prompt weryfikujący odpowiedź użytkownika na pytanie o imie.",
+    tags=set(['verification']),
 )
 async def initial_verification_prompt() -> str:
     return f"""
@@ -38,24 +45,17 @@ async def initial_verification_prompt() -> str:
     """
 
 @MCP_SERVER.prompt(
-    name="mood_question_prompt",
-    description="Zadaj jedno, zwięzłe pytanie o nastrój. Zwróć tylko treść pytania."
+    name="self_evaluation_verification_prompt",
+    description="Prompt weryfikujący odpowiedź użytkownika na pytanie o samoocenę.",
+    tags=set(['verification']),
 )
-def mood_question_prompt() -> str:
-    return (
-        "Masz zadać jedno uprzejme pytanie o nastrój użytkownika. "
-        "Tylko treść pytania, po polsku. Przykład stylu: 'Jak się dziś czujesz?'."
-    )
+async def self_evaluation_verification_prompt() -> str:
+    return f"""
+    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika jest wystarczająco szczegółowa.
+    Jeśli odpowiedź użytkownika jest zbyt ogólna lub nie zawiera konkretnych informacji o jego wkładzie w projekt, poproś go o bardziej szczegółową odpowiedź.
 
-@MCP_SERVER.prompt(
-    name="mood_classify_prompt",
-    description="Sklasyfikuj odpowiedź o nastrój i zwróć krótki komentarz jako JSON."
-)
-def mood_classify_prompt() -> str:
-    return (
-        "Dostaniesz w wejściu:\n"
-        "Pytanie: <tekst>\n"
-        "Odpowiedź użytkownika: <tekst>\n"
-        "Zwróć TYLKO surowy JSON: "
-        "{\"label\":\"bad|okay|good\",\"comment\":\"jedno krótkie zdanie po polsku\"}"
-    )
+    Wymagane jest w odpowiedzi żeby było ujęta ocena od 2 do 5 oraz uzasadnienie tej oceny.
+    Jeśli ocena lub uzasadnienie nie są zawarte w odpowiedzi, poproś użytkownika o ich podanie.
+    Jeśli odpowiedź jest wystarczająco szczegółowa, i zawiera ocene, wykonaj handoff do question_agent.
+
+    """

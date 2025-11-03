@@ -11,21 +11,24 @@ def get_app() -> Sanic:
         """Change agent according to request data and to the field stated there."""
         data = request.json
         print(f"Received data: {data}")
-        state_key = data.get("state", "initial")
+        id = data.get("id", 0)
+        question_target = data.get("question_target", "general") 
+        current_state_key = data.get("state", "initial")
         last_state_key = data.get("last_state", None)
-        print(f"State key: {state_key}, Last state key: {last_state_key}")
-        state = AVAILABLE_STATES.get(state_key, AVAILABLE_STATES["initial"])
+        print(f"Current state key: {current_state_key}, Last state key: {last_state_key}")
+        current_state = AVAILABLE_STATES.get(current_state_key, AVAILABLE_STATES["initial"])
         
         if last_state_key:
             last_state = AVAILABLE_STATES.get(last_state_key, None)
             if last_state:
-                next_state = last_state.name
+                #Dopóki nie zostanie odpowiedziane na pytanie z last_state, to zostajemy w tym stanie,czyli stan będzie taki sam
+                next_state_key = current_state_key  # Stay in current state until verification passes
             else:
-                next_state = state.next_state
-                print(f"Warning: last_state_key '{last_state_key}' not found in AVAILABLE_STATES")
+                last_state = None
+                next_state_key = current_state.next_state
         else:
             last_state = None
-            next_state = state.next_state
+            next_state_key = current_state.next_state
         
         user_anwser = data.get("anwser", "No anwser for last question.")
 
@@ -36,20 +39,21 @@ def get_app() -> Sanic:
         )
         await mcp_server.connect()
         
-        agent_workflow = AgentWorkflow(state=state, mcp_server=mcp_server,user_anwser=user_anwser, last_state=last_state)
+        agent_workflow = AgentWorkflow(state=current_state, mcp_server=mcp_server,user_anwser=user_anwser, last_state=last_state)
         question = []
         async for step in agent_workflow.run():
             if step["state"] == "ANSWERING":
-                question.append(step["answer"])
+                question.append(step.get("answer", ""))
             if step["state"] == "NEXT_QUESTION":
                 #To znaczy że aktualne pytanie zostało zadane, więc przechodzimy do następnego stanu
-                next_state = state.next_state
+                next_state_key = current_state.next_state
+                current_state_key = current_state.name
         await mcp_server.cleanup()
         res = {
             "status": "completed",
             "question": ' '.join(question),
-            "next_state": next_state,
-            "current_state": state.name
+            "next_state": next_state_key,
+            "current_state": current_state_key
         }
         return response.json(res,ensure_ascii=False)
 
