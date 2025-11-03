@@ -19,7 +19,17 @@ def post(payload):
         return {"raw": data}
 
 def main():
-    init_payload = {"state": "initial", "last_state": "", "anwser": ""}
+    # Get user_id and question_target at the start
+    user_id = input("Enter user_id (default 1): ").strip() or "1"
+    question_target = "general"
+    
+    init_payload = {
+        "state": "initial",
+        "last_state": "",
+        "anwser": "",
+        "user_id": user_id,
+        "question_target": question_target
+    }
     resp = post(init_payload)
     print("Initial response:")
     print(resp)
@@ -34,7 +44,13 @@ def main():
         answer = input("\nYour answer (empty to exit): ").strip()
         if not answer:
             break
-        follow_payload = {"state": next_state, "last_state": current_state, "anwser": answer}
+        follow_payload = {
+            "state": next_state,
+            "last_state": current_state,
+            "anwser": answer,
+            "user_id": user_id,
+            "question_target": question_target
+        }
         resp = post(follow_payload)
         print("\nServer response:")
         print(resp)

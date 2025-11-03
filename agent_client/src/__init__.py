@@ -11,7 +11,7 @@ def get_app() -> Sanic:
         """Change agent according to request data and to the field stated there."""
         data = request.json
         print(f"Received data: {data}")
-        id = data.get("id", 0)
+        user_id = data.get("user_id", 0)
         question_target = data.get("question_target", "general") 
         current_state_key = data.get("state", "initial")
         last_state_key = data.get("last_state", None)
@@ -34,12 +34,23 @@ def get_app() -> Sanic:
 
         mcp_server = MCPServerStreamableHttp(
             params=MCPServerStreamableHttpParams(
-                url='http://localhost:7000/mcp'
+                url=f'http://localhost:7000/mcp',
+                headers={
+                    "user_id": str(user_id),
+                    "question_target": question_target
+                }
             )
         )
         await mcp_server.connect()
-        
-        agent_workflow = AgentWorkflow(state=current_state, mcp_server=mcp_server,user_anwser=user_anwser, last_state=last_state)
+
+        agent_workflow = AgentWorkflow(
+            state=current_state,
+            mcp_server=mcp_server,
+            user_anwser=user_anwser,
+            last_state=last_state,
+            user_id=user_id,
+            question_target=question_target
+        )
         question = []
         async for step in agent_workflow.run():
             if step["state"] == "ANSWERING":
