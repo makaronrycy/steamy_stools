@@ -9,6 +9,7 @@ from pymongo import MongoClient
 from git import Repo
 from dotenv import load_dotenv
 from Detect_Useless_Commits import detect_useless_commits
+from sklearn.preprocessing import MinMaxScaler
 from regularity_metrics import evaluate_commit_regularities
 
 load_dotenv()
@@ -17,6 +18,7 @@ load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OWNER = os.getenv("OWNER")
 REPO_NAME = os.getenv("REPO_NAME")
+GIT_BRANCH = os.getenv("MAIN_BRANCH", "main")
 GIT_BRANCH = os.getenv("MAIN_BRANCH", "main")
 
 MONGO_URI = os.getenv("MONGO_URI")
@@ -225,7 +227,38 @@ def metrics_processing(metrics_df):
 
    metrics_df[cols] = metrics_df[cols].diff()
    metrics_df[cols] = metrics_df[cols].fillna(orig)
+   
+def normalize_metrics(df):
+    cols = ['bugs','vulnerabilities','code_smells','duplicated_lines_density']
+    scaler = MinMaxScaler()
+    df[cols] = scaler.fit_transform(df[cols])
+    return df
 
+def compute_commit_score(df):
+    weights = {
+        'bugs': 0.4,
+        'vulnerabilities': 0.3,
+        'code_smells': 0.2,
+        'duplicated_lines_density': 0.1
+    }
+
+    df['commit_score'] = (
+        df['bugs'] * weights['bugs'] +
+        df['vulnerabilities'] * weights['vulnerabilities'] +
+        df['code_smells'] * weights['code_smells'] +
+        df['duplicated_lines_density'] * weights['duplicated_lines_density']
+    )
+
+      # Skala 0–1 (im wyższa, tym lepiej)
+    df['commit_score'] = 1 - (df['commit_score'] - df['commit_score'].min()) / (df['commit_score'].max() - df['commit_score'].min() + 1e-9)
+    df['commit_score'] = 2+df['commit_score'] * (5-2) 
+    
+    return df
+
+def evaluate_commits(metrics_df, useless_commits):
+    metrics_df = normalize_metrics(metrics_df)
+    metrics_df = compute_commit_score(metrics_df)
+    return metrics_df
 
 if __name__ == "__main__":
 
@@ -257,7 +290,7 @@ if __name__ == "__main__":
     
     oldest_commit = commits.iloc[0]["sha"]
     all_metrics = []
-    for i in range(14, commits_len):
+    for i in range(commits_len-1):
 
         commit = commits.iloc[i]["sha"]
         repo.git.checkout(commit)
@@ -279,6 +312,7 @@ if __name__ == "__main__":
     metrics_df['date'] = pd.to_datetime(metrics_df['date'], errors='coerce').dt.tz_localize(None)
     metrics_df.sort_values(by = 'date', ascending = True, inplace = True)
     
+
     metrics_processing(metrics_df)
     regularity_df = evaluate_commit_regularities(dfs_names.copy(), unique_names.copy(), PROJECT_START_TIME, WEEKS)
     print(metrics_df.to_string())
