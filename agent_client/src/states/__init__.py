@@ -32,10 +32,10 @@ AVAILABLE_STATES = {
     "evaluate_teammate_grade":State(
         name="evaluate_teammate_grade",
         description="Asks the user to evaluate a teammate's grade.",
-        allowed_tools=["get_ungraded_members_tool"],
+        allowed_tools=["get_random_ungraded_member_tool"],
         prompt_name="question_prompt",
-        verification_prompt_name="teamate_evaluation_verification_prompt",
-        tool_instructions="Jeśli pytanie jest o członka zespołu, wylosuj nieocenionego członka zespołu używając get_ungraded_members_tool.",
+        verification_prompt_name="teammate_evaluation_verification_prompt",
+        tool_instructions="Jeśli pytanie jest o członka zespołu, wylosuj nieocenionego członka zespołu używając get_random_ungraded_member_tool. Następnie wykorzystaj jego imię i nazwisko w dalszej rozmowie. Jeśli już jest w historii rozmowy, nie musisz ponownie losować, chyba że został oceniony. Nie wspominaj o losowaniu w rozmowie.",
         question="Jaką ocenę wystawiłbyś swojemu koledze z zespołu i dlaczego?",
         next_state="evaluate_project_grade"
     ),

@@ -205,12 +205,50 @@ class Neo4jRetriever:
                 WHERE answer.question_type = "teammate_assessment"
                 WITH teammate, answer
                 WHERE answer IS NULL
-                RETURN teammate.index as ungraded_index
+                RETURN 
+                    teammate.index as ungraded_index,
+                    teammate.name as name,
+                    teammate.surname as surname
                 ORDER BY teammate.index
             """, index=index)
             
-            return [record["ungraded_index"] for record in result]
-
+            return [{"index": record["ungraded_index"], "name": record["name"], "surname": record["surname"]} for record in result]
+    def get_random_ungraded_member(self, index: str):
+        """
+        Get a random ungraded team member
+        
+        Args:
+            index: Grader index
+            
+        Returns:
+            Dictionary with index, name, surname of a random ungraded member or None
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (teammate:Student)-[:belongs_to]->(project)
+                WHERE teammate.index <> $index
+                WITH grader, teammate
+                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(teammate)
+                WHERE answer.question_type = "teammate_assessment"
+                WITH teammate, answer
+                WHERE answer IS NULL
+                RETURN 
+                    teammate.index as ungraded_index,
+                    teammate.name as name,
+                    teammate.surname as surname
+                ORDER BY rand()
+                LIMIT 1
+            """, index=index)
+            
+            record = result.single()
+            if record:
+                return {
+                    "index": record["ungraded_index"],
+                    "name": record["name"],
+                    "surname": record["surname"]
+                }
+            return None
     def has_graded_all_projects(self, index: str):
         """
         Check if user has graded all projects
@@ -516,7 +554,7 @@ class Neo4jRetriever:
             
             return result
 
-    def identify_teammate_by_name(self, grader_index: str, name: str):
+    def identify_teammate_by_name(self, grader_index: str, name: str,surname: str|None):
         """
         Identify teammates by name from the same project
         
@@ -527,17 +565,20 @@ class Neo4jRetriever:
         Returns:
             List of dicts: [{"name": str, "surname": str, "index": str}]
         """
+        where_statement = "AND toLower(teammate.name) = toLower($name)"
+        if surname is not None:
+            where_statement += " AND toLower(teammate.surname) = toLower($surname)"
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (grader:Student {index: $grader_index})-[:belongs_to]->(project:Project)
                 MATCH (teammate:Student)-[:belongs_to]->(project)
-                WHERE teammate.index <> $grader_index 
+                {where_statement}
                   AND toLower(teammate.name) = toLower($name)
                 RETURN teammate.name AS name, 
                        teammate.surname AS surname, 
                        teammate.index AS index
                 ORDER BY teammate.surname, teammate.name
-            """, grader_index=grader_index, name=name)
+            """, grader_index=grader_index,where_statement= where_statement,name=name)
             
             return [{"name": record["name"], 
                     "surname": record["surname"], 

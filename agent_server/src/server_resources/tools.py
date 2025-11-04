@@ -177,6 +177,25 @@ async def get_ungraded_members_tool() -> str:
         return f"Ungraded teammates for {user_index}: {lst}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+@MCP_SERVER.tool(
+    name="get_random_ungraded_member_tool",
+    description="Zwraca losowego nieocenionego kolegę z zespołu.",
+    tags=set(['retrieval', 'progress']),
+)
+async def get_random_ungraded_member_tool() -> str:
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_index' header not found"
+        retriever = Neo4jRetriever()
+        member = retriever.get_random_ungraded_member(index=user_index)
+        retriever.close()
+        if not member:
+            return f"All teammates have been graded by {user_index}"
+        return f"Random ungraded teammate for {user_index}: {member}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 
 
 @MCP_SERVER.tool(
@@ -456,7 +475,8 @@ async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -
         retriever = Neo4jRetriever()
         teammates = retriever.identify_teammate_by_name(
             grader_index=param.grader_index,
-            name=param.name
+            name=param.name,
+            surname=param.surname
         )
         retriever.close()
         if not teammates:
@@ -468,28 +488,6 @@ async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-
-@MCP_SERVER.tool(
-    name="identify_teammate_by_surname_tool",
-    description="Wyszukuje członków zespołu po nazwisku (case-insensitive).",
-    tags=set(['retrieval', 'teammate', 'search']),
-)
-async def identify_teammate_by_surname_tool(param: IdentifyTeammateBySurnameRequest) -> str:
-    try:
-        retriever = Neo4jRetriever()
-        teammates = retriever.identify_teammate_by_surname(
-            grader_index=param.grader_index,
-            surname=param.surname
-        )
-        retriever.close()
-        if not teammates:
-            return f"No teammates found with surname '{param.surname}'"
-        result = [f"Teammates with surname {param.surname}:"]
-        for t in teammates:
-            result.append(f"- {t['name']} {t['surname']} ({t['index']})")
-        return "\n".join(result)
-    except Exception as e:
-        return f"ERROR: {str(e)}"
 
 @MCP_SERVER.tool(
     name="set_teammate_grade_tool",

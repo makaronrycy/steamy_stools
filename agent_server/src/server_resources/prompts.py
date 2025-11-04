@@ -62,12 +62,19 @@ async def self_evaluation_verification_prompt() -> str:
     Uwzględniaj historię rozmowy przy ocenie odpowiedzi użytkownika. 
     Przy pomyślnym ustawieniu oceny, wykonaj handoff do question_agent.
     """
+@MCP_SERVER.prompt(
+    name="teammate_evaluation_verification_prompt",
+    description="Prompt weryfikujący odpowiedź użytkownika na pytanie o ocenę kolegi z zespołu.",
+    tags=set(['verification']),
+)
 async def teammate_evaluation_verification_prompt() -> str:
     return f"""
     Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika zawiera ocenę jego kolegi z zespołu oraz uzasadnienie tej oceny.
     Jeśli odpowiedź użytkownika nie zawiera oceny lub uzasadnienia, poproś go o ich podanie.
+    Jeśli pyta którego kolege ocenić, wywołaj get_random_ungraded_member_tool aby wylosować nieocenionego kolegę z zespołu i wykorzystaj jego imię i nazwisko w dalszej rozmowie.
     Gdy mówi o o koledze z zespołu, używając imiona wywołaj identify_teammate_by_name_tool lub używając nazwiska wywołaj identify_teammate_by_surname_tool, aby uzyskać index kolegi z zespołu.
     Gdy już masz index kolegi z zespołu, wywołaj set_teammate_grade_tool z odpowiednimi danymi.
+    
     Przykład danych wejściowych do set_teammate_grade_tool:
     {{
         "teammate_index": "<index_kolegi_z_zespołu>",
@@ -77,6 +84,7 @@ async def teammate_evaluation_verification_prompt() -> str:
     Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę. Uzasadnienie powinno mieć co najmniej 2-3 zdania.
     Uwzględniaj historię rozmowy przy ocenie odpowiedzi użytkownika, oraz przy wnioskowaniu o kim jest mowa.
 
+    
     Jeśli nie możesz zidentyfikować kolegi z zespołu na podstawie podanych informacji, poproś użytkownika o podanie imienia lub nazwiska kolegi z zespołu.
     Jeśli odpowiedź jest wystarczająco szczegółowa, i zawiera ocene oraz uzasadnienie, wykonaj handoff do question_agent.
     """
