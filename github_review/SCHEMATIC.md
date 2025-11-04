@@ -44,9 +44,10 @@ Program automatyzuje monitorowanie i ocenę jakości kodu w repozytorium:
 
 ## 3. Struktura katalogów
 
+```plaintext
 workspace/
 ├─ repo/ # lokalne repozytorium do analizy
-├─ sonar-project.properties # plik konfiguracyjny potrzebny do analizy generowany automatycznie przez program
+└─ sonar-project.properties # plik konfiguracyjny potrzebny do analizy generowany automatycznie przez program
 
 ## 4. Struktura działania programu
 ![Struktura działania programu](img/image.png)

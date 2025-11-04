@@ -3,18 +3,21 @@ import subprocess
 import time
 import requests
 import pandas as pd
+import shutil
+import stat
 from pymongo import MongoClient
 from git import Repo
 from dotenv import load_dotenv
 from Detect_Useless_Commits import detect_useless_commits
+from regularity_metrics import evaluate_commit_regularities
 
 load_dotenv()
 
-# --- zmienne środowiskowe ---
+# Env variables
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OWNER = os.getenv("OWNER")
 REPO_NAME = os.getenv("REPO_NAME")
-GIT_BRANCH = os.getenv("GIT_BRANCH", "main")
+GIT_BRANCH = os.getenv("MAIN_BRANCH", "main")
 
 MONGO_URI = os.getenv("MONGO_URI")
 WORKSPACE_DIR = os.path.join(os.getcwd(), "workspace")
@@ -25,8 +28,14 @@ GITHUB_URL = os.getenv("GITHUB_URL")
 SONAR_HOST_URL = os.getenv("SONAR_HOST_URL", "http://host.docker.internal:9000")
 SONAR_API_URL = os.getenv("SONAR_API_URL", "http://localhost:9000")
 SONAR_TOKEN = os.getenv("SONAR_TOKEN")
-SONAR_PROJECT_KEY = os.getenv("SONAR_PROJECT_KEY", "Project")
+SONAR_PROJECT_KEY = os.getenv("SONAR_PROJECT_KEY")
 SONAR_PROJECT_NAME = os.getenv("SONAR_PROJECT_NAME", "Project")
+
+PROJECT_START_TIME = pd.to_datetime(os.getenv("PROJECT_START_TIME")).tz_localize(None)
+WEEKS = int(os.getenv("WEEKS"))
+
+
+
 
 def load_commits():
     headers = {"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
@@ -69,6 +78,7 @@ def run_sonar_scanner():
     ]
 
     subprocess.run(cmd, check=True)
+
 
 def setup_workspace():
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
@@ -117,6 +127,19 @@ def get_sonar_metrics(project_key):
     measures = {m["metric"]: m["value"] for m in data["component"]["measures"]}
     return measures
 
+def remove_repo_dir(repo_dir):
+
+    def on_rm_error(func, path, exc_info):
+        # zdejmujemy atrybut 'read-only' i próbujemy usunąć ponownie
+        os.chmod(path, stat.S_IWRITE)
+        os.remove(path)
+
+    if os.path.exists(repo_dir):
+        try:
+            shutil.rmtree(repo_dir, onexc=on_rm_error)
+            print(f"Usunięto folder: {repo_dir}")
+        except Exception as e:
+            print(f"Nie udało się całkowicie usunąć {repo_dir}: {e}")
 
 def wait_for_sonar_analysis(project_key, timeout=180):
     
@@ -157,8 +180,6 @@ def delete_sonar_project(project_key):
         print(f"Nie udało się usunąć projektu '{project_key}'. Status: {response.status_code}, odpowiedź: {response.text}")
     
 def reset_to_latest_and_detect(repo):
- 
-    # Przywracanie repozytorium do najnowszego commita z gałęzi {GIT_BRANCH}
     repo.git.checkout(GIT_BRANCH)
     repo.remotes.origin.pull()
     current_dir = os.getcwd()
@@ -186,6 +207,7 @@ def date_preprocessing(data):
     dfs =[]
     for name in unique_names:
         df = data[data['author'] == name].sort_values(by = 'date', ascending = True).reset_index(drop = True)
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.tz_localize(None)
         dfs.append(df)
 
     return dfs, unique_names
@@ -195,20 +217,26 @@ def metrics_processing(metrics_df):
    
    cols = ['bugs','vulnerabilities', 'code_smells', 'duplicated_lines_density']
 
-   metrics_df[cols] = metrics_df[cols].apply(pd.to_numeric, errors='coerce')
+   metrics_df['date'] = pd.to_datetime(metrics_df['date'], errors='coerce').dt.tz_localize(None)
+   
    orig = metrics_df[cols].copy()
+
+   metrics_df[cols] = metrics_df[cols].apply(pd.to_numeric, errors='coerce')
+
    metrics_df[cols] = metrics_df[cols].diff()
    metrics_df[cols] = metrics_df[cols].fillna(orig)
 
 
 if __name__ == "__main__":
 
+    remove_repo_dir(REPO_DIR)
+    
     commits = load_commits()
     
     setup_workspace()
     
     repo = clone_repository()
-    commits_len = len(commits)
+    
     commit_key = SONAR_PROJECT_KEY
     
     useless_commits = reset_to_latest_and_detect(repo)
@@ -219,7 +247,7 @@ if __name__ == "__main__":
         print("\n", useless_commit)
     
     commits.reset_index(drop = True, inplace = True)
-    
+    commits_len = len(commits)
     client = MongoClient(MONGO_URI)
     #save_to_database(client, useless_commits)
     
@@ -229,7 +257,7 @@ if __name__ == "__main__":
     
     oldest_commit = commits.iloc[0]["sha"]
     all_metrics = []
-    for i in range(commits_len):
+    for i in range(14, commits_len):
 
         commit = commits.iloc[i]["sha"]
         repo.git.checkout(commit)
@@ -242,16 +270,15 @@ if __name__ == "__main__":
         metrics["date"] = commits.iloc[i]["date"]
         
         delete_sonar_project(commit_key)
-
         all_metrics.append(metrics)
         
 
     dfs_names, unique_names = date_preprocessing(commits)
 
     metrics_df = pd.DataFrame(all_metrics)
-    metrics_df['date'] = metrics_df['date'].apply(pd.to_datetime, errors = 'coerce')
+    metrics_df['date'] = pd.to_datetime(metrics_df['date'], errors='coerce').dt.tz_localize(None)
     metrics_df.sort_values(by = 'date', ascending = True, inplace = True)
     
     metrics_processing(metrics_df)
-
+    regularity_df = evaluate_commit_regularities(dfs_names.copy(), unique_names.copy(), PROJECT_START_TIME, WEEKS)
     print(metrics_df.to_string())
