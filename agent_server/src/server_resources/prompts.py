@@ -72,21 +72,21 @@ async def teammate_evaluation_verification_prompt() -> str:
     Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika zawiera ocenę jego kolegi z zespołu oraz uzasadnienie tej oceny.
     Jeśli odpowiedź użytkownika nie zawiera oceny lub uzasadnienia, poproś go o ich podanie.
     Jeśli pyta którego kolege ocenić, wywołaj get_random_ungraded_member_tool aby wylosować nieocenionego kolegę z zespołu i wykorzystaj jego imię i nazwisko w dalszej rozmowie.
-    Gdy mówi o o koledze z zespołu, używając imiona wywołaj identify_teammate_by_name_tool lub używając nazwiska wywołaj identify_teammate_by_surname_tool, aby uzyskać index kolegi z zespołu.
+    Gdy mówi o o koledze z zespołu, używając imiona wywołaj identify_teammate_by_name_tool aby uzyskać index kolegi z zespołu.
     Gdy już masz index kolegi z zespołu, wywołaj set_teammate_grade_tool z odpowiednimi danymi.
-    
     Przykład danych wejściowych do set_teammate_grade_tool:
     {{
         "teammate_index": "<index_kolegi_z_zespołu>",
         "grade": 4.0,
         "explanation": "Mój kolega z zespołu przyczynił się do projektu poprzez..."
     }}
-    Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę. Uzasadnienie powinno mieć co najmniej 2-3 zdania.
+    Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę
     Uwzględniaj historię rozmowy przy ocenie odpowiedzi użytkownika, oraz przy wnioskowaniu o kim jest mowa.
 
     
     Jeśli nie możesz zidentyfikować kolegi z zespołu na podstawie podanych informacji, poproś użytkownika o podanie imienia lub nazwiska kolegi z zespołu.
-    Jeśli odpowiedź jest wystarczająco szczegółowa, i zawiera ocene oraz uzasadnienie, wykonaj handoff do question_agent.
+    Jeśli odpowiedź jest wystarczająca, zawiera ocene oraz uzasadnienie, wykonaj handoff do question_agent.
+    Po zapisaniu oceny wykonaj handoff do question_agent aby kontynuować wywiad.
     """
 
 @MCP_SERVER.prompt(

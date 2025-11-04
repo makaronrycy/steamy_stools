@@ -572,13 +572,13 @@ class Neo4jRetriever:
             result = session.run("""
                 MATCH (grader:Student {index: $grader_index})-[:belongs_to]->(project:Project)
                 MATCH (teammate:Student)-[:belongs_to]->(project)
-                {where_statement}
-                  AND toLower(teammate.name) = toLower($name)
-                RETURN teammate.name AS name, 
+                WHERE teammate.index <> $grader_index 
+                    """ + where_statement + """
+                        RETURN teammate.name AS name, 
                        teammate.surname AS surname, 
                        teammate.index AS index
                 ORDER BY teammate.surname, teammate.name
-            """, grader_index=grader_index,where_statement= where_statement,name=name)
+            """, grader_index=grader_index, name=name,surname=surname)
             
             return [{"name": record["name"], 
                     "surname": record["surname"], 

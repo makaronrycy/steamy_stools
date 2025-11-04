@@ -6,7 +6,6 @@ from .models import (
     GetProjectMembersRequest, GetUserInfoRequest, HasGradedAllMembersRequest,
     GetUngradedMembersRequest, HasGradedAllProjectsRequest, GetUngradedProjectsRequest,
     GetStudentCompletionStatusRequest, IdentifyTeammateByNameRequest,
-    IdentifyTeammateBySurnameRequest,
     SetSelfGradeRequest, SetTeammateGradeRequest, SetLeaderGradeRequest,
     SetProjectGradeRequest, SetProjectObjectivesGradeRequest,
 )
@@ -471,10 +470,13 @@ async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
 )
 async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -> str:
     try:
-
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
         retriever = Neo4jRetriever()
         teammates = retriever.identify_teammate_by_name(
-            grader_index=param.grader_index,
+            grader_index=user_index,
             name=param.name,
             surname=param.surname
         )
