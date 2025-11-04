@@ -4,6 +4,7 @@ class State(BaseModel):
     name: str
     description: str
     allowed_tools: list[str]
+    tool_instructions: str = ""
     prompt_name: str
     verification_prompt_name: str|None
     question: str
@@ -28,6 +29,34 @@ AVAILABLE_STATES = {
         question="Jak oceniasz swój wkład w projekcie i jakie były twoje zadania",
         next_state="evaluate_project_grade"
     ),
+    "evaluate_teammate_grade":State(
+        name="evaluate_teammate_grade",
+        description="Asks the user to evaluate a teammate's grade.",
+        allowed_tools=["get_ungraded_members_tool"],
+        prompt_name="question_prompt",
+        verification_prompt_name="teamate_evaluation_verification_prompt",
+        tool_instructions="Jeśli pytanie jest o członka zespołu, wylosuj nieocenionego członka zespołu używając get_ungraded_members_tool.",
+        question="Jaką ocenę wystawiłbyś swojemu koledze z zespołu i dlaczego?",
+        next_state="evaluate_project_grade"
+    ),
+    "evaluate_leader_grade":State(
+        name="evaluate_leader_grade",
+        description="Asks the user to evaluate the leader's grade.",
+        allowed_tools=["get"],
+        prompt_name="question_prompt",
+        verification_prompt_name="leader_evaluation_verification_prompt",
+        question="Jaką ocenę wystawiłbyś swojemu liderowi i dlaczego?",
+        next_state="evaluate_project_grade"
+    ),
+    "evaluate_objectives_grade":State(
+        name="evaluate_objectives_grade",
+        description="Asks the user to evaluate the project objectives grade.",
+        allowed_tools=[],
+        prompt_name="question_prompt",
+        verification_prompt_name="objectives_evaluation_verification_prompt",
+        question="Czy cele projektu zostały osiągnięte? Jaką ocenę byś wystawił i dlaczego?",
+        next_state="done"
+    ),
     "evaluate_project_grade":State(
         name="evaluate_project_grade",
         description="Asks the user to evaluate the project grade.",
@@ -35,15 +64,6 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name=None,
         question="Jaką ocenę wystawiłbyś projektowi i dlaczego?",
-        next_state="evaluate_teammate_grade"
-    ),
-    "evaluate_teammate_grade":State(
-        name="evaluate_teammate_grade",
-        description="Asks the user to evaluate a teammate's grade.",
-        allowed_tools=[],
-        prompt_name="question_prompt",
-        verification_prompt_name=None,
-        question="Jaką ocenę wystawiłbyś swojemu koledze z zespołu i dlaczego?",
         next_state="done"
     ),
     "done": State(
@@ -55,6 +75,5 @@ AVAILABLE_STATES = {
         question="Dziękuję za udział w wywiadzie.",
         next_state="done"
     ),
-
 }
 

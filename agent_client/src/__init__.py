@@ -72,6 +72,7 @@ def get_app() -> Sanic:
             history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
             history_data = history_tool_result.model_dump()
             history_dict = json.loads(history_data["content"][0]["text"])
+            print(f"Retrieved conversation history: {history_dict}")
             # Run agent workflow
             print("Starting agent workflow...")
             agent_workflow = AgentWorkflow(
@@ -118,6 +119,8 @@ def get_app() -> Sanic:
                             print(f"Session updated successfully: last_state={update_dict.get('last_state')}, current_state={update_dict.get('new_state')}")
                         else:
                             print(f"Warning: Session update returned error: {update_dict.get('error')}")
+                            #This means there's no data in DB, return error
+                            raise Exception(f"Session state update failed, db probably empty: {update_dict.get('error')}")
 
                     except Exception as e:
                         print(f"Error in state transition: {e}")
@@ -145,7 +148,7 @@ def get_app() -> Sanic:
 
                     # Save agent's question
                     agent_question = ''.join(question)
-                    if agent_question:
+                    if agent_question and user_anwser != "No anwser for last question.":
                         await mcp_server.session.call_tool(
                             "save_conversation_message_tool",
                             arguments={

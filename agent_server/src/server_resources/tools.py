@@ -428,18 +428,21 @@ async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
     Ustawia samoocenę studenta.
     """
     try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
         retriever = Neo4jRetriever()
         data = param.model_dump()
-        
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
         result = retriever.set_self_grade(
-            grading_person_index=data['grading_person_index'],
+            grading_person_index=user_index,
             grade=data['grade'],
             description=data['description']
         )
         
         retriever.close()
         
-        return f"SUCCESS: Self-grade {data['grade']} set for student {data['grading_person_index']}"
+        return f"SUCCESS: Self-grade {data['grade']} set for student {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"
 @MCP_SERVER.tool(
@@ -449,6 +452,7 @@ async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
 )
 async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -> str:
     try:
+
         retriever = Neo4jRetriever()
         teammates = retriever.identify_teammate_by_name(
             grader_index=param.grader_index,
@@ -495,8 +499,12 @@ async def identify_teammate_by_surname_tool(param: IdentifyTeammateBySurnameRequ
 async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
     try:
         retriever = Neo4jRetriever()
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
         retriever.set_teammate_grade(
-            grading_person_index=param.grading_person_index,
+            grading_person_index=user_index,
             graded_person_index=param.graded_person_index,
             grade=param.grade,
             description=param.description
@@ -515,8 +523,12 @@ async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
 async def set_leader_grade_tool(param: SetLeaderGradeRequest) -> str:
     try:
         retriever = Neo4jRetriever()
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
         retriever.set_leader_grade(
-            grading_person_index=param.grading_person_index,
+            grading_person_index=user_index,
             project_id=param.project_id,
             grade=param.grade,
             description=param.description
@@ -535,8 +547,12 @@ async def set_leader_grade_tool(param: SetLeaderGradeRequest) -> str:
 async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
     try:
         retriever = Neo4jRetriever()
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
         retriever.set_project_grade(
-            grading_person_index=param.grading_person_index,
+            grading_person_index=user_index,
             project_id=param.project_id,
             grade=param.grade,
             description=param.description
@@ -554,9 +570,13 @@ async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
 )
 async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequest) -> str:
     try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
         retriever = Neo4jRetriever()
         retriever.set_project_objectives_grade(
-            grading_person_index=param.grading_person_index,
+            grading_person_index=user_index,
             project_id=param.project_id,
             grade=param.grade,
             description=param.description

@@ -116,7 +116,7 @@ class AgentWorkflow:
             if prompt_name == "initial_prompt":
                 agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)
             else:
-                agent_prompt = await self.mcp_server.session.get_prompt(prompt_name,{"question":self.state.question})
+                agent_prompt = await self.mcp_server.session.get_prompt(prompt_name,{"question":self.state.question,"allowed_tools_instructions":self.state.tool_instructions})
             agent = Agent(
                 name="QuestionAgent",
                 model = self.model,

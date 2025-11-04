@@ -5,7 +5,8 @@ import os
 #to solve problems with .env path
 from pathlib import Path
 
-load_dotenv(Path(__file__).parent.parent.parent.parent / '.env') #path set for .env in the root directory
+print(Path(__file__).parent.parent.parent / '.env')
+load_dotenv(Path(__file__).parent.parent.parent/ '.env') #path set for .env in the root directory
 
 class Neo4jRetriever:
     def __init__(self, uri=None, username=None, password=None):
@@ -788,6 +789,7 @@ class Neo4jRetriever:
                        cm.role as role,
                        cm.content as content,
                        cm.state_at_time as state_at_time,
+                       cm.timestamp as timestamp
                 ORDER BY cm.timestamp ASC
             """
 
@@ -798,7 +800,6 @@ class Neo4jRetriever:
                 result = session.run(query, session_id=session_id)
 
             return [{
-                "message_id": record["message_id"],
                 "role": record["role"],
                 "content": record["content"],
                 "state_at_time": record["state_at_time"],
@@ -1309,7 +1310,7 @@ if __name__ == "__main__":
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    # retriever.clear_database()
-    # retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
+    #retriever.clear_database()
+    retriever.fill_database_no_grades("src/neo4j_retriever/data_no_grades.csv")
     # retriever.fill_database_with_grades("src/neo4j_retriever/grades.csv")
     retriever.close() # destroy retriever

@@ -29,3 +29,4 @@ async def get_node_types() -> dict:
     schema = connector.get_node_types()
     logging.warning(f'[get_node_types] {datetime.now()} finished')
     return schema
+

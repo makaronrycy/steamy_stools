@@ -14,12 +14,13 @@ async def initial_prompt() -> str:
     description=" Prompt zadający pytanie użytkownikowi.",
     tags=set(['example', 'question']),
 )
-async def question_prompt(question) -> str:
+async def question_prompt(question,allowed_tools_instructions) -> str:
     return f"""
     Jesteś agentem zadającym pytania użytkownikowi w ramach wywiadu gorących krzeseł.
     Twoim zadaniem jest zadać użytkownikowi następujące pytanie i czekać na jego odpowiedź.
-    Pytanie jest następujące: {question}. Upewnij się, że pytanie jest jasne i zwięzłe. Skup się tylko na zadaniu pytania i nie dodawaj żadnych dodatkowych informacji ani kontekstu.
-    
+    Pytanie jest następujące: {question}. Upewnij się, że pytanie jest jasne i zwięzłe. Zapewnij żeby przejście do pytania było naturalne i uprzejme, ale nie nawiązuj do poprzednich tematów.
+    {allowed_tools_instructions}
+
     Miej świadomość, że odpowiedź aktualna użytkownika nie referuje na pytanie, które zadajesz, ponieważ może to być odpowiedź na poprzednie pytanie.
     Twoim zadaniem jest zadać tylko to pytanie i czekać na odpowiedź użytkownika.
     """
@@ -36,84 +37,6 @@ async def initial_verification_prompt() -> str:
     get_user_info nie przyjmuje żadnych parametrów, więc po prostu je wywołaj.
     Jeśli odpowiedź użytkownika jest niezgodna z jego danymi (np. imię i nazwisko nie pasują), poproś go o poprawne podanie informacji.
     Jeśli odpowiedź użytkownika jest zgodna z jego danymi, handoff do question_agent aby kontynuować wywiad.
-    """
-async def triage_prompt() -> str:
-    return f"""
-    Jesteś agentem weryfikującym odpowiedzi użytkownika i sprawdzającym kompletność ocen. 
-    
-    === CZĘŚĆ 1: WERYFIKACJA IMIENIA I NAZWISKA ===
-    
-    Masz dostęp do następującego narzędzia: check_name_tool, które sprawdza, czy podane imię i nazwisko jest w bazie danych.
-    Wywoływanie narzędzia powinno być wykonane, jeśli odpowiedź użytkownika zawiera imię i nazwisko.
-    
-    Dane wejściowe do check_name_tool:
-    {{
-        "first_name": "<imię>",
-        "last_name": "<nazwisko>"
-    }}
-    
-    PROCEDURA WERYFIKACJI TOŻSAMOŚCI:
-    1. Jeśli odpowiedź użytkownika nie zawiera imienia i nazwiska, zadaj ponowne pytanie o imię i nazwisko
-    2. Jeśli odpowiedź zawiera imię i nazwisko, wywołaj check_name_tool
-    3. Jeśli imię i nazwisko znajdują się w bazie danych (FOUND):
-       - Zapisz index użytkownika do kontekstu
-       - Przejdź do CZĘŚCI 2: SPRAWDZENIE KOMPLETNOŚCI OCEN
-    4. Jeśli imię i nazwisko nie znajdują się w bazie danych (NOT_FOUND):
-       - Poinformuj użytkownika, że nie ma jego imienia w bazie danych
-       - Poproś o poprawne podanie imienia i nazwiska
-    
-    === CZĘŚĆ 2: SPRAWDZENIE KOMPLETNOŚCI OCEN ===
-    
-    Po pozytywnej weryfikacji tożsamości, sprawdź kompletność wszystkich ocen użytkownika.
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_student_completion_status_tool: pobierz pełny status kompletności ocen
-    - get_user_info_tool: pobierz informacje o użytkowniku (jeśli potrzebne)
-    
-    PROCEDURA SPRAWDZENIA KOMPLETNOŚCI:
-    1. Użyj get_student_completion_status_tool z indexem użytkownika
-    2. Przeanalizuj wynik i zidentyfikuj brakujące oceny
-    3. Jeśli wszystkie oceny kompletne (all_complete: true):
-       - Pogratuluj użytkownikowi
-       - Poinformuj że wszystkie oceny są uzupełnione
-       - Zakończ wywiad
-    4. Jeśli brakuje ocen:
-       - Wyświetl status wszystkich typów ocen
-       - Wypisz listę brakujących ocen ze szczegółami
-       - Zaproponuj uzupełnienie brakujących ocen
-       - Wykonaj handoff do odpowiedniego agenta (question_agent) aby uzupełnić braki
-    
-    FORMAT RAPORTU KOMPLETNOŚCI:
-    "Witaj [imię nazwisko]! Sprawdzam status Twoich ocen...
-    
-    Status Twoich ocen:
-    - Samoocena: [ukończona / brakuje]
-    - Oceny kolegów z zespołu: [X/Y ukończonych]
-    - Oceny projektów: [X/Y ukończonych]
-    - Ocena zarządzania lidera: [ukończona / brakuje / nie dotyczy]
-    - Ocena celów projektu: [ukończona / brakuje]
-    
-    [Jeśli wszystko kompletne]
-    Gratulacje! Wszystkie oceny są kompletne!
-    
-    [Jeśli brakuje ocen]
-    Brakujące oceny:
-    - [Lista konkretnych brakujących ocen z nazwami/ID]
-    
-    Czy chcesz teraz uzupełnić brakujące oceny?"
-    
-    DANE ZWRACANE Z get_student_completion_status_tool:
-    {{
-        "all_complete": bool,
-        "self_assessment": {{"is_complete": bool, "has_grade": bool, "has_explanation": bool}},
-        "teammate_assessments": {{"total_required": int, "completed": int, "is_complete": bool, "incomplete_details": [...]}},
-        "project_assessments": {{"total_required": int, "completed": int, "is_complete": bool, "incomplete_details": [...]}},
-        "leadership_assessment": {{"required": bool, "is_complete": bool, "leader_index": str}},
-        "objectives_assessment": {{"is_complete": bool, "project_id": str}}
-    }}
-    
-    UWAGA: Jeśli użytkownik już ma wszystkie oceny kompletne, NIE wykonuj handoff do question_agent.
-    Jeśli użytkownik ma braki, po przedstawieniu raportu wykonaj handoff do question_agent aby prowadzić dalszy wywiad.
     """
 
 @MCP_SERVER.prompt(
@@ -135,9 +58,27 @@ async def self_evaluation_verification_prompt() -> str:
         "grade": 4.5,
         "explanation": "Mój wkład w projekt obejmował..."
     }}
-    Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę.
+    Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę. Uzasadnienie powinno mieć co najmniej 2-3 zdania.
     Uwzględniaj historię rozmowy przy ocenie odpowiedzi użytkownika. 
     Przy pomyślnym ustawieniu oceny, wykonaj handoff do question_agent.
+    """
+async def teammate_evaluation_verification_prompt() -> str:
+    return f"""
+    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika zawiera ocenę jego kolegi z zespołu oraz uzasadnienie tej oceny.
+    Jeśli odpowiedź użytkownika nie zawiera oceny lub uzasadnienia, poproś go o ich podanie.
+    Gdy mówi o o koledze z zespołu, używając imiona wywołaj identify_teammate_by_name_tool lub używając nazwiska wywołaj identify_teammate_by_surname_tool, aby uzyskać index kolegi z zespołu.
+    Gdy już masz index kolegi z zespołu, wywołaj set_teammate_grade_tool z odpowiednimi danymi.
+    Przykład danych wejściowych do set_teammate_grade_tool:
+    {{
+        "teammate_index": "<index_kolegi_z_zespołu>",
+        "grade": 4.0,
+        "explanation": "Mój kolega z zespołu przyczynił się do projektu poprzez..."
+    }}
+    Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę. Uzasadnienie powinno mieć co najmniej 2-3 zdania.
+    Uwzględniaj historię rozmowy przy ocenie odpowiedzi użytkownika, oraz przy wnioskowaniu o kim jest mowa.
+
+    Jeśli nie możesz zidentyfikować kolegi z zespołu na podstawie podanych informacji, poproś użytkownika o podanie imienia lub nazwiska kolegi z zespołu.
+    Jeśli odpowiedź jest wystarczająco szczegółowa, i zawiera ocene oraz uzasadnienie, wykonaj handoff do question_agent.
     """
 
 @MCP_SERVER.prompt(
