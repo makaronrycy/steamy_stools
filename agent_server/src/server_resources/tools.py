@@ -215,6 +215,29 @@ async def has_graded_all_projects_tool() -> str:
     except Exception as e:
         return f"ERROR: {str(e)}"
 
+@MCP_SERVER.tool(
+    name="get_leader_info_tool",
+    description="Zwraca indeks lidera projektu użytkownika.",
+    tags=set(['retrieval', 'role']),
+)
+async def get_leader_info_tool() -> str:
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_index' header not found"
+        retriever = Neo4jRetriever()
+        leader_data = retriever.get_leader_of_student(index=user_index)
+        leader_index = leader_data.get("index") if leader_data else None
+        leader_name = leader_data.get("name") if leader_data else None
+        leader_surname = leader_data.get("surname") if leader_data else None
+
+        retriever.close()
+        if not leader_index:
+            return f"No leader found for user {user_index}"
+        return f"Leader of user {user_index} is {leader_index}, {leader_name} {leader_surname}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 
 @MCP_SERVER.tool(
     name="get_ungraded_projects_tool",
@@ -513,7 +536,6 @@ async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
         return f"SUCCESS: {param.grading_person_index} graded {param.graded_person_index} with {param.grade}"
     except Exception as e:
         return f"ERROR: {str(e)}"
-
 
 @MCP_SERVER.tool(
     name="set_leader_grade_tool",

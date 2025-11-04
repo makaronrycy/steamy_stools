@@ -28,7 +28,18 @@ class Neo4jRetriever:
         with self.driver.session() as session:
             result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
             return [{"name": record["name"], "surname": record["surname"], "index": record["index"]} for record in result]
-
+    def get_leader_of_student(self, index: str):
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (leader:Student)-[r:belongs_to]->(project)
+                WHERE r.role = "leader"
+                RETURN leader.name AS name, leader.surname AS surname, leader.index AS index
+            """, index=index)
+            record = result.single()
+            if record:
+                return {"name": record["name"], "surname": record["surname"], "index": record["index"]}
+            return None
     def get_project_grades(self, project_id: str):
         """
         Get project grades (id) [all grades with information whether the person was in the project] 

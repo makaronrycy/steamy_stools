@@ -117,6 +117,8 @@ def get_app() -> Sanic:
                         update_dict = json.loads(update_data["content"][0]["text"])
                         if update_dict.get("success"):
                             print(f"Session updated successfully: last_state={update_dict.get('last_state')}, current_state={update_dict.get('new_state')}")
+                            # Update current_state_key to reflect the new state
+                            current_state_key = next_state_key
                         else:
                             print(f"Warning: Session update returned error: {update_dict.get('error')}")
                             #This means there's no data in DB, return error
@@ -126,7 +128,7 @@ def get_app() -> Sanic:
                         print(f"Error in state transition: {e}")
                         import traceback
                         traceback.print_exc()
-                        next_state_key = current_state.next_state
+
 
             # Save conversation messages to history
             try:

@@ -21,8 +21,9 @@ async def question_prompt(question,allowed_tools_instructions) -> str:
     Pytanie jest następujące: {question}. Upewnij się, że pytanie jest jasne i zwięzłe. Zapewnij żeby przejście do pytania było naturalne i uprzejme, ale nie nawiązuj do poprzednich tematów.
     {allowed_tools_instructions}
 
+    Nie odpowiadaj na pytanie jeden do jednego.
     Miej świadomość, że odpowiedź aktualna użytkownika nie referuje na pytanie, które zadajesz, ponieważ może to być odpowiedź na poprzednie pytanie.
-    Twoim zadaniem jest zadać tylko to pytanie i czekać na odpowiedź użytkownika.
+    Twoim zadaniem jest zada pytanie i czekać na odpowiedź użytkownika.
     """
 
 @MCP_SERVER.prompt(
@@ -90,11 +91,11 @@ async def teammate_evaluation_verification_prompt() -> str:
     """
 
 @MCP_SERVER.prompt(
-    name="project_grade_verification_prompt",
+    name="project_evaluation_verification_prompt",
     description="Prompt weryfikujący odpowiedź użytkownika na pytanie o ocenę projektu.",
     tags=set(['verification']),
 )
-async def project_grade_verification_prompt() -> str:
+async def project_evaluation_verification_prompt() -> str:
     return f"""
     Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika zawiera ocenę projektu oraz uzasadnienie tej oceny.
     Jeśli odpowiedź użytkownika nie zawiera oceny lub uzasadnienia, poproś go o ich podanie.

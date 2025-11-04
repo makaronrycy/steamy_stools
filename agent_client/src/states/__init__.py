@@ -8,7 +8,6 @@ class State(BaseModel):
     prompt_name: str
     verification_prompt_name: str|None
     question: str
-    next_state: str
 
 AVAILABLE_STATES = {
     "initial": State(
@@ -18,7 +17,6 @@ AVAILABLE_STATES = {
         prompt_name="initial_prompt",
         verification_prompt_name="initial_verification_prompt",
         question="Pytanie o imię i nazwisko użytkownika.",
-        next_state="self_evaluation"
     ),
     "self_evaluation": State(
         name="self_evaluation",
@@ -27,7 +25,6 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name="self_evaluation_verification_prompt",
         question="Jak oceniasz swój wkład w projekcie i jakie były twoje zadania",
-        next_state="evaluate_project_grade"
     ),
     "evaluate_teammate_grade":State(
         name="evaluate_teammate_grade",
@@ -37,16 +34,15 @@ AVAILABLE_STATES = {
         verification_prompt_name="teammate_evaluation_verification_prompt",
         tool_instructions="Jeśli pytanie jest o członka zespołu, wylosuj nieocenionego członka zespołu używając get_random_ungraded_member_tool. Następnie wykorzystaj jego imię i nazwisko w dalszej rozmowie. Jeśli już jest w historii rozmowy, nie musisz ponownie losować, chyba że został oceniony. Nie wspominaj o losowaniu w rozmowie.",
         question="Jaką ocenę wystawiłbyś swojemu koledze z zespołu i dlaczego?",
-        next_state="evaluate_project_grade"
     ),
     "evaluate_leader_grade":State(
         name="evaluate_leader_grade",
         description="Asks the user to evaluate the leader's grade.",
-        allowed_tools=["get"],
+        allowed_tools=["get_leader_info_tool"],
         prompt_name="question_prompt",
         verification_prompt_name="leader_evaluation_verification_prompt",
+        tool_instructions="Jeśli pytanie jest o lidera zespołu, użyj get_leader_info_tool aby uzyskać imię i nazwisko lidera zespołu. Następnie wykorzystaj jego imię i nazwisko w dalszej rozmowie. Nie wspominaj o użyciu narzędzia w rozmowie.",
         question="Jaką ocenę wystawiłbyś swojemu liderowi i dlaczego?",
-        next_state="evaluate_project_grade"
     ),
     "evaluate_objectives_grade":State(
         name="evaluate_objectives_grade",
@@ -55,16 +51,14 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name="objectives_evaluation_verification_prompt",
         question="Czy cele projektu zostały osiągnięte? Jaką ocenę byś wystawił i dlaczego?",
-        next_state="done"
     ),
     "evaluate_project_grade":State(
         name="evaluate_project_grade",
         description="Asks the user to evaluate the project grade.",
         allowed_tools=[],
         prompt_name="question_prompt",
-        verification_prompt_name=None,
+        verification_prompt_name="project_evaluation_verification_prompt",
         question="Jaką ocenę wystawiłbyś projektowi i dlaczego?",
-        next_state="done"
     ),
     "done": State(
         name="done",
@@ -73,7 +67,6 @@ AVAILABLE_STATES = {
         prompt_name="done_prompt",
         verification_prompt_name=None,
         question="Dziękuję za udział w wywiadzie.",
-        next_state="done"
     ),
 }
 
