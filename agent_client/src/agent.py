@@ -19,7 +19,9 @@ logfire.instrument_openai_agents()   # patchuje SDK i wysyła span-y do Langfuse
 
 class AgentWorkflow:
 
-    def __init__(self, user_anwser,last_state:State|None, state:State,mcp_server: MCPServerStreamableHttp):
+    def __init__(self,user_id:int, user_anwser,last_state:State|None, state:State,mcp_server: MCPServerStreamableHttp,question_target:str="general"):
+        self.user_id = user_id
+        self.question_target = question_target
         self.user_anwser = user_anwser
         self.mcp_server = mcp_server
         self.state = state
@@ -37,7 +39,7 @@ class AgentWorkflow:
             logging.error(f"Failed to initialize Langfuse: {e}")
         with langfuse.start_as_current_span(name ="AgentWorkflow Run") as span:
             yield {"state": "STARTING"}
-            if self.state.name == "initial":
+            if self.state.name == "initial" or self.last_state.verification_prompt_name is None:
                 agent = await self.prepare_question_agent(self.state.prompt_name)
             else:
                 agent = await self.prepare_verification_agent(self.last_state.verification_prompt_name,self.state.prompt_name)
@@ -47,6 +49,7 @@ class AgentWorkflow:
             question_text = ls.get("question", "")
             prompt = f"Pytanie: {question_text}\nOdpowiedź użytkownika: {self.user_anwser}"
             langfuse.update_current_trace(
+                user_id= str(self.user_id),
                 input=prompt
             )
             result = runner.run_streamed(starting_agent=agent, input=prompt)
@@ -110,7 +113,10 @@ class AgentWorkflow:
     async def prepare_question_agent(self,prompt_name) ->Agent:
         try:
             #todo: dynamic handoffs based on allowed_handoffs
-            agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)
+            if prompt_name == "initial_prompt":
+                agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)
+            else:
+                agent_prompt = await self.mcp_server.session.get_prompt(prompt_name,{"question":self.state.question})
             agent = Agent(
                 name="QuestionAgent",
                 model = self.model,
