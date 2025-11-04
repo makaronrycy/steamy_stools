@@ -19,7 +19,7 @@ logfire.instrument_openai_agents()   # patchuje SDK i wysyła span-y do Langfuse
 
 class AgentWorkflow:
 
-    def __init__(self,user_id:int, user_anwser,last_state:State|None, state:State,mcp_server: MCPServerStreamableHttp,question_target:str="general"):
+    def __init__(self,user_id:int, user_anwser,last_state:State|None, state:State,mcp_server: MCPServerStreamableHttp,question_target:str="general",history:list[Dict[str,Any]]=[]):
         self.user_id = user_id
         self.question_target = question_target
         self.user_anwser = user_anwser
@@ -27,6 +27,7 @@ class AgentWorkflow:
         self.state = state
         self.last_state = last_state
         self.model = "gpt-4o-mini"
+        self.history = history
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
         try:
             langfuse = Langfuse(
@@ -39,15 +40,14 @@ class AgentWorkflow:
             logging.error(f"Failed to initialize Langfuse: {e}")
         with langfuse.start_as_current_span(name ="AgentWorkflow Run") as span:
             yield {"state": "STARTING"}
-            if self.state.name == "initial" or self.last_state.verification_prompt_name is None:
+            if self.state.name == "initial" or self.last_state is None or self.last_state.verification_prompt_name is None:
                 agent = await self.prepare_question_agent(self.state.prompt_name)
             else:
                 agent = await self.prepare_verification_agent(self.last_state.verification_prompt_name,self.state.prompt_name)
 
             runner =  Runner()
             ls = self.last_state if isinstance(self.last_state, dict) else {"question": str(self.last_state or "")}
-            question_text = ls.get("question", "")
-            prompt = f"Pytanie: {question_text}\nOdpowiedź użytkownika: {self.user_anwser}"
+            prompt = f"Historia:{self.history}\nOdpowiedź użytkownika: {self.user_anwser}"
             langfuse.update_current_trace(
                 user_id= str(self.user_id),
                 input=prompt

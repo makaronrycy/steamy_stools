@@ -545,11 +545,11 @@ class Neo4jRetriever:
     def identify_teammate_by_surname(self, grader_index: str, surname: str):
         """
         Identify teammates by surname from the same project
-        
+
         Args:
             grader_index: Index of the student searching
             surname: Surname to search for
-            
+
         Returns:
             List of dicts: [{"name": str, "surname": str, "index": str}]
         """
@@ -557,18 +557,364 @@ class Neo4jRetriever:
             result = session.run("""
                 MATCH (grader:Student {index: $grader_index})-[:belongs_to]->(project:Project)
                 MATCH (teammate:Student)-[:belongs_to]->(project)
-                WHERE teammate.index <> $grader_index 
+                WHERE teammate.index <> $grader_index
                   AND toLower(teammate.surname) = toLower($surname)
-                RETURN teammate.name AS name, 
-                       teammate.surname AS surname, 
+                RETURN teammate.name AS name,
+                       teammate.surname AS surname,
                        teammate.index AS index
                 ORDER BY teammate.surname, teammate.name
             """, grader_index=grader_index, surname=surname)
-            
-            return [{"name": record["name"], 
-                    "surname": record["surname"], 
+
+            return [{"name": record["name"],
+                    "surname": record["surname"],
                     "index": record["index"]} for record in result]
 
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------CONVERSATION SESSION METHODS----------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    def get_or_create_session(self, student_index: str):
+        """
+        Get active conversation session for a student, or create new one if none exists
+
+        Args:
+            student_index: Student index
+
+        Returns:
+            dict: {
+                "session_id": str,
+                "student_index": str,
+                "current_state": str,
+                "started_at": datetime,
+                "last_updated": datetime,
+                "is_active": bool
+            }
+        """
+        session = self.get_active_session(student_index)
+        if session:
+            return session
+        return self.create_conversation_session(student_index)
+
+    def create_conversation_session(self, student_index: str):
+        """
+        Create new conversation session for a student
+
+        Args:
+            student_index: Student index
+
+        Returns:
+            dict: Session information
+        """
+        import uuid
+
+        session_id = str(uuid.uuid4())
+
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})
+                CREATE (cs:ConversationSession {
+                    session_id: $session_id,
+                    student_index: $student_index,
+                    current_state: "initial",
+                    last_state: null,
+                    started_at: datetime(),
+                    last_updated: datetime(),
+                    is_active: true,
+                    completed: false
+                })
+                CREATE (student)-[:HAS_SESSION]->(cs)
+                RETURN cs.session_id as session_id,
+                       cs.student_index as student_index,
+                       cs.current_state as current_state,
+                       cs.last_state as last_state,
+                       cs.started_at as started_at,
+                       cs.last_updated as last_updated,
+                       cs.is_active as is_active,
+                       cs.completed as completed
+            """, session_id=session_id, student_index=student_index)
+
+            record = result.single()
+            if record:
+                return {
+                    "session_id": record["session_id"],
+                    "student_index": record["student_index"],
+                    "current_state": record["current_state"],
+                    "last_state": record["last_state"],
+                    "started_at": record["started_at"],
+                    "last_updated": record["last_updated"],
+                    "is_active": record["is_active"],
+                    "completed": record["completed"]
+                }
+            return None
+
+    def get_active_session(self, student_index: str):
+        """
+        Get active conversation session for a student
+
+        Args:
+            student_index: Student index
+
+        Returns:
+            dict or None: Session information if active session exists
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})-[:HAS_SESSION]->(cs:ConversationSession)
+                WHERE cs.is_active = true AND cs.completed = false
+                RETURN cs.session_id as session_id,
+                       cs.student_index as student_index,
+                       cs.current_state as current_state,
+                       cs.last_state as last_state,
+                       cs.started_at as started_at,
+                       cs.last_updated as last_updated,
+                       cs.is_active as is_active,
+                       cs.completed as completed
+                ORDER BY cs.last_updated DESC
+                LIMIT 1
+            """, student_index=student_index)
+
+            record = result.single()
+            if record:
+                return {
+                    "session_id": record["session_id"],
+                    "student_index": record["student_index"],
+                    "current_state": record["current_state"],
+                    "last_state": record["last_state"],
+                    "started_at": record["started_at"],
+                    "last_updated": record["last_updated"],
+                    "is_active": record["is_active"],
+                    "completed": record["completed"]
+                }
+            return None
+
+    def update_session_state(self, session_id: str, new_state: str, previous_state = None):
+        """
+        Update current state of conversation session
+
+        Args:
+            session_id: Session ID
+            new_state: New state name
+            previous_state: Optional - the state we're transitioning from (becomes last_state)
+
+        Returns:
+            bool: True if update successful
+        """
+        with self.driver.session() as session:
+            if previous_state is not None:
+                result = session.run("""
+                    MATCH (cs:ConversationSession {session_id: $session_id})
+                    SET cs.last_state = cs.current_state,
+                        cs.current_state = $new_state,
+                        cs.last_updated = datetime()
+                    RETURN cs.session_id as session_id
+                """, session_id=session_id, new_state=new_state)
+            else:
+                result = session.run("""
+                    MATCH (cs:ConversationSession {session_id: $session_id})
+                    SET cs.current_state = $new_state,
+                        cs.last_updated = datetime()
+                    RETURN cs.session_id as session_id
+                """, session_id=session_id, new_state=new_state)
+
+            return result.single() is not None
+
+    def save_conversation_message(self, session_id: str, role: str, content: str, state_at_time: str):
+        """
+        Save a conversation message to the session
+
+        Args:
+            session_id: Session ID
+            role: Message role ("user" or "assistant")
+            content: Message content
+            state_at_time: State when message was sent
+
+        Returns:
+            dict: Saved message information
+        """
+        import uuid
+
+        message_id = str(uuid.uuid4())
+
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (cs:ConversationSession {session_id: $session_id})
+                CREATE (cm:ConversationMessage {
+                    message_id: $message_id,
+                    role: $role,
+                    content: $content,
+                    state_at_time: $state_at_time,
+                    timestamp: datetime()
+                })
+                CREATE (cs)-[r:HAS_MESSAGE]->(cm)
+                WITH cs, cm, r
+                MATCH (cs)-[rel:HAS_MESSAGE]->(m:ConversationMessage)
+                WITH cm, count(rel) as sequence
+                RETURN cm.message_id as message_id,
+                       cm.role as role,
+                       cm.content as content,
+                       cm.state_at_time as state_at_time,
+                       cm.timestamp as timestamp,
+                       sequence
+            """, session_id=session_id, message_id=message_id, role=role,
+                 content=content, state_at_time=state_at_time)
+
+            record = result.single()
+            if record:
+                return {
+                    "message_id": record["message_id"],
+                    "role": record["role"],
+                    "content": record["content"],
+                    "state_at_time": record["state_at_time"],
+                    "timestamp": record["timestamp"],
+                    "sequence": record["sequence"]
+                }
+            return None
+
+    def get_conversation_history(self, session_id: str, limit = None):
+        """
+        Get conversation history for a session
+
+        Args:
+            session_id: Session ID
+            limit: Optional limit on number of messages to return (most recent)
+
+        Returns:
+            list: List of messages in chronological order
+        """
+        with self.driver.session() as session:
+            query = """
+                MATCH (cs:ConversationSession {session_id: $session_id})-[:HAS_MESSAGE]->(cm:ConversationMessage)
+                RETURN cm.message_id as message_id,
+                       cm.role as role,
+                       cm.content as content,
+                       cm.state_at_time as state_at_time,
+                ORDER BY cm.timestamp ASC
+            """
+
+            if limit is not None:
+                query += " LIMIT $limit"
+                result = session.run(query, session_id=session_id, limit=limit)
+            else:
+                result = session.run(query, session_id=session_id)
+
+            return [{
+                "message_id": record["message_id"],
+                "role": record["role"],
+                "content": record["content"],
+                "state_at_time": record["state_at_time"],
+            } for record in result]
+
+    def mark_session_complete(self, session_id: str):
+        """
+        Mark conversation session as completed
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            bool: True if update successful
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (cs:ConversationSession {session_id: $session_id})
+                SET cs.completed = true,
+                    cs.is_active = false,
+                    cs.last_updated = datetime()
+                RETURN cs.session_id as session_id
+            """, session_id=session_id)
+
+            return result.single() is not None
+
+    def get_next_required_state(self, student_index: str):
+        """
+        Determine the next required state based on completion status
+
+        Args:
+            student_index: Student index
+
+        Returns:
+            dict: {
+                "state": str (state name),
+                "reason": str (why this state is next),
+                "details": dict (additional context)
+            }
+        """
+        status = self.get_student_completion_status(student_index)
+
+        # Priority 1: Self evaluation
+        if not status["self_assessment"]["is_complete"]:
+            missing = []
+            if not status["self_assessment"]["has_grade"]:
+                missing.append("grade")
+            if not status["self_assessment"]["has_explanation"]:
+                missing.append("explanation")
+
+            return {
+                "next_state": "self_evaluation",
+                "reason": "self_assessment_incomplete",
+                "details": {
+                    "missing_fields": missing
+                }
+            }
+
+        # Priority 2: Teammate assessments
+        if not status["teammate_assessments"]["is_complete"]:
+            incomplete = status["teammate_assessments"]["incomplete_details"]
+            return {
+                "next_state": "evaluate_teammate_grade",
+                "reason": "teammate_assessments_incomplete",
+                "details": {
+                    "total_required": status["teammate_assessments"]["total_required"],
+                    "completed": status["teammate_assessments"]["completed"],
+                    "remaining": len(incomplete),
+                    "next_teammate": incomplete[0] if incomplete else None
+                }
+            }
+
+        # Priority 3: Project assessments
+        if not status["project_assessments"]["is_complete"]:
+            incomplete = status["project_assessments"]["incomplete_details"]
+            return {
+                "next_state": "evaluate_project_grade",
+                "reason": "project_assessments_incomplete",
+                "details": {
+                    "total_required": status["project_assessments"]["total_required"],
+                    "completed": status["project_assessments"]["completed"],
+                    "remaining": len(incomplete),
+                    "next_project": incomplete[0] if incomplete else None
+                }
+            }
+
+        # Priority 4: Leadership assessment (if required and user is not the leader)
+        if status["leadership_assessment"]["required"] and not status["leadership_assessment"]["is_complete"]:
+            is_user_leader = self.is_leader(student_index)
+            if not is_user_leader:  # Only non-leaders evaluate leadership
+                return {
+                    "next_state": "evaluate_leadership",
+                    "reason": "leadership_assessment_incomplete",
+                    "details": {
+                        "leader_index": status["leadership_assessment"]["leader_index"]
+                    }
+                }
+
+        # Priority 5: Objectives assessment
+        if not status["objectives_assessment"]["is_complete"]:
+            return {
+                "next_state": "evaluate_objectives",
+                "reason": "objectives_assessment_incomplete",
+                "details": {
+                    "project_id": status["objectives_assessment"]["project_id"]
+                }
+            }
+
+        # All complete
+        return {
+            "next_state": "done",
+            "reason": "all_assessments_complete",
+            "details": {
+                "completion_summary": status
+            }
+        }
 
     def close(self):
         self.driver.close()

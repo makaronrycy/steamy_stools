@@ -8,7 +8,7 @@ if __name__ == "__main__":
     uvicorn.run(
             "src:create_app",  # Assuming your FastAPI app is in a file named main.py
             host="0.0.0.0",
-            port=7000,
+            port=10000,
             # Concurrency settings
             workers=int(os.environ.get("WORKERS",1)),  # Ilość worker procesów
             loop="asyncio",  # Najlepszy dla async
