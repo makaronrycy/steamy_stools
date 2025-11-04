@@ -31,17 +31,81 @@ async def question_prompt(question) -> str:
 )
 async def initial_verification_prompt() -> str:
     return f"""
-    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź jest zgodna z oczekiwaniami.
-    Masz dostęp do następującego narzędzia: check_name_tool, które sprawdza, czy podane imie i nazwisko jest w bazie danych.
+    Jesteś agentem weryfikującym odpowiedzi użytkownika i sprawdzającym kompletność ocen. 
+    
+    === CZĘŚĆ 1: WERYFIKACJA IMIENIA I NAZWISKA ===
+    
+    Masz dostęp do następującego narzędzia: check_name_tool, które sprawdza, czy podane imię i nazwisko jest w bazie danych.
     Wywoływanie narzędzia powinno być wykonane, jeśli odpowiedź użytkownika zawiera imię i nazwisko.
+    
     Dane wejściowe do check_name_tool:
     {{
         "first_name": "<imię>",
         "last_name": "<nazwisko>"
     }}
-    Jeśli odpowiedź użytkownika nie zawiera imienia i nazwiska, zadaj ponowne pytanie o imię i nazwisko.
-    Jeśli imię i nazwisko znajdują się w bazie danych, wykonaj handoff do question_agent.
-    Jeśli imię i nazwisko nie znajdują się w bazie danych, poinformuj użytkownika, że nie ma jego imienia w bazie danych i poproś o poprawne podanie imienia.
+    
+    PROCEDURA WERYFIKACJI TOŻSAMOŚCI:
+    1. Jeśli odpowiedź użytkownika nie zawiera imienia i nazwiska, zadaj ponowne pytanie o imię i nazwisko
+    2. Jeśli odpowiedź zawiera imię i nazwisko, wywołaj check_name_tool
+    3. Jeśli imię i nazwisko znajdują się w bazie danych (FOUND):
+       - Zapisz index użytkownika do kontekstu
+       - Przejdź do CZĘŚCI 2: SPRAWDZENIE KOMPLETNOŚCI OCEN
+    4. Jeśli imię i nazwisko nie znajdują się w bazie danych (NOT_FOUND):
+       - Poinformuj użytkownika, że nie ma jego imienia w bazie danych
+       - Poproś o poprawne podanie imienia i nazwiska
+    
+    === CZĘŚĆ 2: SPRAWDZENIE KOMPLETNOŚCI OCEN ===
+    
+    Po pozytywnej weryfikacji tożsamości, sprawdź kompletność wszystkich ocen użytkownika.
+    
+    DOSTĘPNE NARZĘDZIA:
+    - get_student_completion_status_tool: pobierz pełny status kompletności ocen
+    - get_user_info_tool: pobierz informacje o użytkowniku (jeśli potrzebne)
+    
+    PROCEDURA SPRAWDZENIA KOMPLETNOŚCI:
+    1. Użyj get_student_completion_status_tool z indexem użytkownika
+    2. Przeanalizuj wynik i zidentyfikuj brakujące oceny
+    3. Jeśli wszystkie oceny kompletne (all_complete: true):
+       - Pogratuluj użytkownikowi
+       - Poinformuj że wszystkie oceny są uzupełnione
+       - Zakończ wywiad
+    4. Jeśli brakuje ocen:
+       - Wyświetl status wszystkich typów ocen
+       - Wypisz listę brakujących ocen ze szczegółami
+       - Zaproponuj uzupełnienie brakujących ocen
+       - Wykonaj handoff do odpowiedniego agenta (question_agent) aby uzupełnić braki
+    
+    FORMAT RAPORTU KOMPLETNOŚCI:
+    "Witaj [imię nazwisko]! Sprawdzam status Twoich ocen...
+    
+    Status Twoich ocen:
+    - Samoocena: [ukończona / brakuje]
+    - Oceny kolegów z zespołu: [X/Y ukończonych]
+    - Oceny projektów: [X/Y ukończonych]
+    - Ocena zarządzania lidera: [ukończona / brakuje / nie dotyczy]
+    - Ocena celów projektu: [ukończona / brakuje]
+    
+    [Jeśli wszystko kompletne]
+    Gratulacje! Wszystkie oceny są kompletne!
+    
+    [Jeśli brakuje ocen]
+    Brakujące oceny:
+    - [Lista konkretnych brakujących ocen z nazwami/ID]
+    
+    Czy chcesz teraz uzupełnić brakujące oceny?"
+    
+    DANE ZWRACANE Z get_student_completion_status_tool:
+    {{
+        "all_complete": bool,
+        "self_assessment": {{"is_complete": bool, "has_grade": bool, "has_explanation": bool}},
+        "teammate_assessments": {{"total_required": int, "completed": int, "is_complete": bool, "incomplete_details": [...]}},
+        "project_assessments": {{"total_required": int, "completed": int, "is_complete": bool, "incomplete_details": [...]}},
+        "leadership_assessment": {{"required": bool, "is_complete": bool, "leader_index": str}},
+        "objectives_assessment": {{"is_complete": bool, "project_id": str}}
+    }}
+    
+    UWAGA: Jeśli użytkownik już ma wszystkie oceny kompletne, NIE wykonuj handoff do question_agent.
+    Jeśli użytkownik ma braki, po przedstawieniu raportu wykonaj handoff do question_agent aby prowadzić dalszy wywiad.
     """
 
 @MCP_SERVER.prompt(

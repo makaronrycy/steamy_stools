@@ -27,7 +27,549 @@ class Neo4jRetriever:
         with self.driver.session() as session:
             result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
             return [{"name": record["name"], "surname": record["surname"], "index": record["index"]} for record in result]
+
+    def get_project_grades(self, project_id: str):
+        """
+        Get project grades (id) [all grades with information whether the person was in the project] 
+        -> grade, justification, grader_index, was_member
         
+        Args:
+            project_id: Project ID
+            
+        Returns:
+            List of project grades with information about grader's membership
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (project:Project {id: $project_id})
+                OPTIONAL MATCH (grader:Student)-[:answered]->(answer:Answer)-[:refers_to]->(project)
+                WHERE answer.question_type = "project_assessment"
+                OPTIONAL MATCH (grader)-[belongs:belongs_to]->(project)
+                RETURN answer.grade as grade,
+                       answer.explanation as explanation,
+                       grader.index as grader_index,
+                       CASE WHEN belongs IS NOT NULL THEN true ELSE false END as was_member
+                ORDER BY grader.index
+            """, project_id=project_id)
+            
+            return [{"grade": record["grade"], 
+                    "explanation": record["explanation"], 
+                    "grader_index": record["grader_index"],
+                    "was_member": record["was_member"]} for record in result]
+
+    def get_member_grades(self, index: str):
+        """
+        Get grades for a given member (index) [mark leader grades] 
+        -> grade, justification, grader_index, is_leader
+        
+        Args:
+            index: Index of the graded member
+            
+        Returns:
+            List of member grades with information if grader was a leader
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (graded:Student {index: $index})
+                OPTIONAL MATCH (grader:Student)-[:answered]->(answer:Answer)-[:refers_to]->(graded)
+                WHERE answer.question_type = "teammate_assessment"
+                OPTIONAL MATCH (grader)-[r:belongs_to]->(project:Project)
+                OPTIONAL MATCH (graded)-[:belongs_to]->(same_project:Project)
+                WHERE project = same_project AND r.role = "leader"
+                RETURN answer.grade as grade,
+                       answer.explanation as explanation,
+                       grader.index as grader_index,
+                       CASE WHEN r.role = "leader" THEN true ELSE false END as is_leader
+                ORDER BY grader.index
+            """, index=index)
+            
+            return [{"grade": record["grade"], 
+                    "explanation": record["explanation"], 
+                    "grader_index": record["grader_index"],
+                    "is_leader": record["is_leader"]} for record in result]
+
+    def is_leader(self, index: str):
+        """
+        Check if student is a leader
+        
+        Args:
+            index: Student index
+            
+        Returns:
+            bool: True if student is a leader
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $index})-[r:belongs_to]->(project:Project)
+                WHERE r.role = "leader"
+                RETURN COUNT(r) > 0 as is_leader
+            """, index=index)
+            
+            record = result.single()
+            return record["is_leader"] if record else False
+
+    def get_project_members(self, project_id: str):
+        """
+        Get all member indexes from a given project
+        
+        Args:
+            project_id: Project ID
+            
+        Returns:
+            List of project member indexes
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student)-[:belongs_to]->(project:Project {id: $project_id})
+                RETURN student.index as index
+                ORDER BY student.index
+            """, project_id=project_id)
+            
+            return [record["index"] for record in result]
+
+    def get_user_info(self, index: str):
+        """
+        Get user information
+        
+        Args:
+            index: Student index
+            
+        Returns:
+            Dictionary with user information
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $index})
+                OPTIONAL MATCH (student)-[:belongs_to]->(project:Project)
+                RETURN student.name as name,
+                       student.surname as surname,
+                       student.github as github,
+                       project.id as project_id,
+                       project.name as project_name
+            """, index=index)
+            
+            record = result.single()
+            if record:
+                return {
+                    "name": record["name"],
+                    "surname": record["surname"], 
+                    "github": record["github"],
+                    "project_id": record["project_id"],
+                    "project_name": record["project_name"]
+                }
+            return None
+
+    def has_graded_all_members(self, index: str):
+        """
+        Check if user has graded all team members
+        
+        Args:
+            index: Grader index
+            
+        Returns:
+            bool: True if graded all team members
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (teammate:Student)-[:belongs_to]->(project)
+                WHERE teammate.index <> $index
+                WITH grader, collect(teammate.index) as all_teammates
+                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(graded:Student)
+                WHERE answer.question_type = "teammate_assessment"
+                WITH all_teammates, collect(graded.index) as graded_teammates
+                RETURN size(all_teammates) = size(graded_teammates) AND size(all_teammates) > 0 as has_graded_all
+            """, index=index)
+            
+            record = result.single()
+            return record["has_graded_all"] if record else False
+
+    def get_ungraded_members(self, index: str):
+        """
+        Get list of ungraded team members
+        
+        Args:
+            index: Grader index
+            
+        Returns:
+            List of indexes of ungraded members
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (teammate:Student)-[:belongs_to]->(project)
+                WHERE teammate.index <> $index
+                WITH grader, teammate
+                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(teammate)
+                WHERE answer.question_type = "teammate_assessment"
+                WITH teammate, answer
+                WHERE answer IS NULL
+                RETURN teammate.index as ungraded_index
+                ORDER BY teammate.index
+            """, index=index)
+            
+            return [record["ungraded_index"] for record in result]
+
+    def has_graded_all_projects(self, index: str):
+        """
+        Check if user has graded all projects
+        
+        Args:
+            index: Grader index
+            
+        Returns:
+            bool: True if graded all projects
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (project:Project)
+                WITH collect(project.id) as all_projects
+                MATCH (grader:Student {index: $index})
+                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(graded_project:Project)
+                WHERE answer.question_type = "project_assessment"
+                WITH all_projects, collect(graded_project.id) as graded_projects
+                RETURN size(all_projects) = size(graded_projects) AND size(all_projects) > 0 as has_graded_all
+            """, index=index)
+            
+            record = result.single()
+            return record["has_graded_all"] if record else False
+
+    def get_ungraded_projects(self, index: str):
+        """
+        Get list of ungraded projects
+        
+        Args:
+            index: Grader index
+            
+        Returns:
+            List of ungraded project IDs
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (project:Project)
+                WITH project
+                MATCH (grader:Student {index: $index})
+                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(project)
+                WHERE answer.question_type = "project_assessment"
+                WITH project, answer
+                WHERE answer IS NULL
+                RETURN project.id as ungraded_project_id
+                ORDER BY project.id
+            """, index=index)
+            
+            return [record["ungraded_project_id"] for record in result]
+
+    def get_student_completion_status(self, index: str):
+        """
+        Check completion status of all answer types for a given student
+        
+        Args:
+            index: Student index
+            
+        Returns:
+            dict: {
+                "all_complete": bool,
+                "self_assessment": {
+                    "has_grade": bool,
+                    "has_explanation": bool,
+                    "is_complete": bool
+                },
+                "teammate_assessments": {
+                    "total_required": int,
+                    "completed": int,
+                    "is_complete": bool,
+                    "incomplete_details": [
+                        {
+                            "teammate_index": str,
+                            "has_grade": bool,
+                            "has_explanation": bool
+                        }
+                    ]
+                },
+                "project_assessments": {
+                    "total_required": int,
+                    "completed": int,
+                    "is_complete": bool,
+                    "incomplete_details": [
+                        {
+                            "project_id": str,
+                            "has_grade": bool,
+                            "has_explanation": bool
+                        }
+                    ]
+                },
+                "leadership_assessment": {
+                    "required": bool,
+                    "has_grade": bool,
+                    "has_explanation": bool,
+                    "is_complete": bool,
+                    "leader_index": str or None
+                },
+                "objectives_assessment": {
+                    "has_grade": bool,
+                    "has_explanation": bool,
+                    "is_complete": bool,
+                    "project_id": str or None
+                }
+            }
+        """
+        with self.driver.session() as session:
+            result = {}
+            
+            # 1. SELF ASSESSMENT
+            self_result = session.run("""
+                MATCH (student:Student {index: $index})
+                OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
+                WHERE answer.question_type = "self_assessment"
+                RETURN answer.grade as grade, 
+                       answer.explanation as explanation
+            """, index=index)
+            
+            self_record = self_result.single()
+            if self_record:
+                has_grade = self_record["grade"] is not None
+                has_explanation = self_record["explanation"] is not None and str(self_record["explanation"]).strip() != ""
+            else:
+                has_grade = False
+                has_explanation = False
+                
+            result["self_assessment"] = {
+                "has_grade": has_grade,
+                "has_explanation": has_explanation,
+                "is_complete": has_grade and has_explanation
+            }
+            
+            # 2. TEAMMATE ASSESSMENTS
+            teammates_result = session.run("""
+                MATCH (grader:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (teammate:Student)-[:belongs_to]->(project)
+                WHERE teammate.index <> $index
+                RETURN teammate.index as teammate_index
+                ORDER BY teammate.index
+            """, index=index)
+            
+            all_teammates = [record["teammate_index"] for record in teammates_result]
+            total_teammates = len(all_teammates)
+            
+            incomplete_teammates = []
+            completed_teammates = 0
+            
+            for teammate_idx in all_teammates:
+                teammate_answer = session.run("""
+                    MATCH (grader:Student {index: $grader_index})
+                    MATCH (teammate:Student {index: $teammate_index})
+                    OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(teammate)
+                    WHERE answer.question_type = "teammate_assessment"
+                    RETURN answer.grade as grade,
+                           answer.explanation as explanation
+                """, grader_index=index, teammate_index=teammate_idx).single()
+                
+                if teammate_answer:
+                    has_grade = teammate_answer["grade"] is not None
+                    has_explanation = teammate_answer["explanation"] is not None and str(teammate_answer["explanation"]).strip() != ""
+                else:
+                    has_grade = False
+                    has_explanation = False
+                
+                if has_grade and has_explanation:
+                    completed_teammates += 1
+                else:
+                    incomplete_teammates.append({
+                        "teammate_index": teammate_idx,
+                        "has_grade": has_grade,
+                        "has_explanation": has_explanation
+                    })
+            
+            result["teammate_assessments"] = {
+                "total_required": total_teammates,
+                "completed": completed_teammates,
+                "is_complete": completed_teammates == total_teammates,
+                "incomplete_details": incomplete_teammates
+            }
+            
+            # 3. PROJECT ASSESSMENTS
+            projects_result = session.run("""
+                MATCH (project:Project)
+                RETURN project.id as project_id
+                ORDER BY project.id
+            """)
+            
+            all_projects = [record["project_id"] for record in projects_result]
+            total_projects = len(all_projects)
+            
+            incomplete_projects = []
+            completed_projects = 0
+            
+            for proj_id in all_projects:
+                project_answer = session.run("""
+                    MATCH (grader:Student {index: $index})
+                    MATCH (project:Project {id: $project_id})
+                    OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(project)
+                    WHERE answer.question_type = "project_assessment"
+                    RETURN answer.grade as grade,
+                           answer.explanation as explanation
+                """, index=index, project_id=proj_id).single()
+                
+                if project_answer:
+                    has_grade = project_answer["grade"] is not None
+                    has_explanation = project_answer["explanation"] is not None and str(project_answer["explanation"]).strip() != ""
+                else:
+                    has_grade = False
+                    has_explanation = False
+                
+                if has_grade and has_explanation:
+                    completed_projects += 1
+                else:
+                    incomplete_projects.append({
+                        "project_id": proj_id,
+                        "has_grade": has_grade,
+                        "has_explanation": has_explanation
+                    })
+            
+            result["project_assessments"] = {
+                "total_required": total_projects,
+                "completed": completed_projects,
+                "is_complete": completed_projects == total_projects,
+                "incomplete_details": incomplete_projects
+            }
+            
+            # 4. LEADERSHIP ASSESSMENT
+            leadership_result = session.run("""
+                MATCH (grader:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (leader:Student)-[r:belongs_to]->(project)
+                WHERE r.role = "leader"
+                RETURN leader.index as leader_index
+            """, index=index)
+            
+            leadership_record = leadership_result.single()
+            
+            if leadership_record:
+                leader_idx = leadership_record["leader_index"]
+                leadership_answer = session.run("""
+                    MATCH (grader:Student {index: $index})
+                    MATCH (leader:Student {index: $leader_index})
+                    OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(leader)
+                    WHERE answer.question_type = "leadership_assessment"
+                    RETURN answer.grade as grade,
+                           answer.explanation as explanation
+                """, index=index, leader_index=leader_idx).single()
+                
+                if leadership_answer:
+                    has_grade = leadership_answer["grade"] is not None
+                    has_explanation = leadership_answer["explanation"] is not None and str(leadership_answer["explanation"]).strip() != ""
+                else:
+                    has_grade = False
+                    has_explanation = False
+                
+                result["leadership_assessment"] = {
+                    "required": True,
+                    "has_grade": has_grade,
+                    "has_explanation": has_explanation,
+                    "is_complete": has_grade and has_explanation,
+                    "leader_index": leader_idx
+                }
+            else:
+                result["leadership_assessment"] = {
+                    "required": False,
+                    "has_grade": False,
+                    "has_explanation": False,
+                    "is_complete": True,
+                    "leader_index": None
+                }
+            
+            # 5. OBJECTIVES ASSESSMENT
+            objectives_result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(project)
+                WHERE answer.question_type = "objectives_assessment"
+                RETURN project.id as project_id,
+                       answer.grade as grade,
+                       answer.explanation as explanation
+            """, index=index)
+            
+            objectives_record = objectives_result.single()
+            
+            if objectives_record:
+                proj_id = objectives_record["project_id"]
+                has_grade = objectives_record["grade"] is not None
+                has_explanation = objectives_record["explanation"] is not None and str(objectives_record["explanation"]).strip() != ""
+            else:
+                proj_id = None
+                has_grade = False
+                has_explanation = False
+            
+            result["objectives_assessment"] = {
+                "has_grade": has_grade,
+                "has_explanation": has_explanation,
+                "is_complete": has_grade and has_explanation,
+                "project_id": proj_id
+            }
+            
+            result["all_complete"] = (
+                result["self_assessment"]["is_complete"] and
+                result["teammate_assessments"]["is_complete"] and
+                result["project_assessments"]["is_complete"] and
+                result["leadership_assessment"]["is_complete"] and
+                result["objectives_assessment"]["is_complete"]
+            )
+            
+            return result
+
+    def identify_teammate_by_name(self, grader_index: str, name: str):
+        """
+        Identify teammates by name from the same project
+        
+        Args:
+            grader_index: Index of the student searching
+            name: Name to search for
+            
+        Returns:
+            List of dicts: [{"name": str, "surname": str, "index": str}]
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $grader_index})-[:belongs_to]->(project:Project)
+                MATCH (teammate:Student)-[:belongs_to]->(project)
+                WHERE teammate.index <> $grader_index 
+                  AND toLower(teammate.name) = toLower($name)
+                RETURN teammate.name AS name, 
+                       teammate.surname AS surname, 
+                       teammate.index AS index
+                ORDER BY teammate.surname, teammate.name
+            """, grader_index=grader_index, name=name)
+            
+            return [{"name": record["name"], 
+                    "surname": record["surname"], 
+                    "index": record["index"]} for record in result]
+
+    def identify_teammate_by_surname(self, grader_index: str, surname: str):
+        """
+        Identify teammates by surname from the same project
+        
+        Args:
+            grader_index: Index of the student searching
+            surname: Surname to search for
+            
+        Returns:
+            List of dicts: [{"name": str, "surname": str, "index": str}]
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $grader_index})-[:belongs_to]->(project:Project)
+                MATCH (teammate:Student)-[:belongs_to]->(project)
+                WHERE teammate.index <> $grader_index 
+                  AND toLower(teammate.surname) = toLower($surname)
+                RETURN teammate.name AS name, 
+                       teammate.surname AS surname, 
+                       teammate.index AS index
+                ORDER BY teammate.surname, teammate.name
+            """, grader_index=grader_index, surname=surname)
+            
+            return [{"name": record["name"], 
+                    "surname": record["surname"], 
+                    "index": record["index"]} for record in result]
+
+
     def close(self):
         self.driver.close()
 
@@ -37,17 +579,17 @@ class Neo4jRetriever:
 
     def set_self_grade(
         self, 
-        grading_person_index: int,
+        grading_person_index: str,
         grade: float,
         description: str,
     ):
         """
-        Zapisz samoocenę studenta
+        Save student self-assessment
         
         Args:
-            grading_person_index: Numer indeksu osoby oceniającej samą siebie
-            grade: Ocena (np. 2-5)
-            description: Uzasadnienie oceny
+            grading_person_index: Index number of the person grading themselves
+            grade: Grade (e.g. 2-5)
+            description: Grade justification
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -71,20 +613,20 @@ class Neo4jRetriever:
             return result.single()
 
     def set_teammate_grade(
-    self, 
-    grading_person_index: int,
-    graded_person_index: int,
-    grade: float,
-    description: str,
+        self, 
+        grading_person_index: str,
+        graded_person_index: str,
+        grade: float,
+        description: str,
     ):
         """
-        Zapisz ocenę członka zespołu
+        Save team member assessment
         
         Args:
-            grading_person_index: Numer indeksu osoby oceniającej
-            graded_person_index: Numer indeksu osoby ocenianej
-            grade: Ocena (np. 2-5)
-            description: Uzasadnienie oceny
+            grading_person_index: Index number of the person grading
+            graded_person_index: Index number of the person being graded
+            grade: Grade (e.g. 2-5)
+            description: Grade justification
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -111,8 +653,8 @@ class Neo4jRetriever:
     
     def set_leader_grade(
         self, 
-        grading_person_index: int,
-        project_id: int,
+        grading_person_index: str,
+        project_id: str,
         grade: float,
         description: str,
     ):
@@ -154,8 +696,8 @@ class Neo4jRetriever:
 
     def set_project_grade(
         self, 
-        grading_person_index: int,
-        project_id: int,
+        grading_person_index: str,
+        project_id: str,
         grade: float,
         description: str,
     ):
@@ -195,8 +737,8 @@ class Neo4jRetriever:
 
     def set_project_objectives_grade(
         self, 
-        grading_person_index: int,
-        project_id: int,
+        grading_person_index: str,
+        project_id: str,
         grade: float,
         description: str,
     ):
@@ -239,10 +781,10 @@ class Neo4jRetriever:
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     def fill_database_with_grades(self, csv_path: str):
         """
-        Wczytuje wszystkie oceny z pliku CSV i dodaje je do bazy Neo4j.
+        Load all grades from CSV file and add them to Neo4j database.
 
         Args:
-            csv_path (str): ścieżka do pliku CSV zawierającego kolumny:
+            csv_path (str): Path to CSV file containing columns:
                 type, grader_id, project_id, graded_id, grade, explanation
         """
         import csv
@@ -253,24 +795,24 @@ class Neo4jRetriever:
 
 
             for row in csv_reader:
-                # Pomijamy wiersze z komentarzami lub puste wiersze
+                # Skip rows with comments or empty rows
                 if not row.get('type') or row['type'].strip().startswith('#'):
                     continue
                 
-                # Pomijamy wiersze bez wymaganych danych
+                # Skip rows with missing required data
                 if not row.get('grader_id') or not row.get('grade'):
-                    print(f"Pomijam wiersz z brakującymi danymi: {row}")
+                    print(f"Skipping row with missing data: {row}")
                     continue
                 
                 try:
                     grade_type = row['type'].strip()
-                    grader_id = int(row['grader_id'])
-                    project_id = int(row['project_id']) if row.get('project_id') and row['project_id'].strip() else None
-                    graded_id = int(row['graded_id']) if row.get('graded_id') and row['graded_id'].strip() else None
+                    grader_id = row['grader_id']
+                    project_id = row['project_id'] if row.get('project_id') and row['project_id'].strip() else None
+                    graded_id = row['graded_id'] if row.get('graded_id') and row['graded_id'].strip() else None
                     grade = float(row['grade'])
                     explanation = row.get('explanation', '').strip()
                 except (ValueError, TypeError) as e:
-                    print(f"Błąd konwersji danych w wierszu: {row}. Błąd: {e}")
+                    print(f"Data conversion error in row: {row}. Error: {e}")
                     continue
 
                 try:
@@ -314,19 +856,19 @@ class Neo4jRetriever:
                         )
 
                     count += 1
-                    print(f"[{count}]  Zapisano ocenę typu '{grade_type}' od {grader_id}")
+                    print(f"[{count}] Saved grade type '{grade_type}' from {grader_id}")
 
                 except Exception as e:
-                    print(f" Błąd przy zapisie oceny typu '{grade_type}' od {grader_id}: {e}")
+                    print(f"Error saving grade type '{grade_type}' from {grader_id}: {e}")
 
-        print(f"Zakończono! Wczytano {count} ocen z pliku '{csv_path}'")
+        print(f"Completed! Loaded {count} grades from file '{csv_path}'")
 
     def fill_database_no_grades(self, csv_path: str):
         """
-        Wypełnij bazę danych studentami i projektami z pliku CSV
+        Fill database with students and projects from CSV file
         
         Args:
-            csv_path: Ścieżka do pliku CSV
+            csv_path: Path to CSV file
         
         Format CSV:
             index,name,surname,github,project_id,project_name,role
@@ -334,23 +876,23 @@ class Neo4jRetriever:
         import csv
         
         with self.driver.session() as session:
-            # Najpierw wyczyść bazę (opcjonalnie - odkomentuj jeśli chcesz)
+            # First clear database (optional - uncomment if you want)
             # session.run("MATCH (n) DETACH DELETE n")
             
             with open(csv_path, 'r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 
                 for row in csv_reader:
-                    # Utwórz projekt (jeśli nie istnieje)
+                    # Create project (if doesn't exist)
                     session.run("""
                         MERGE (p:Project {id: $project_id})
                         ON CREATE SET p.name = $project_name
                     """,
-                        project_id=int(row['project_id']),
+                        project_id=row['project_id'],
                         project_name=row['project_name']
                     )
                     
-                    # Utwórz studenta
+                    # Create student
                     session.run("""
                         MERGE (s:Student {index: $index})
                         ON CREATE SET 
@@ -358,34 +900,34 @@ class Neo4jRetriever:
                             s.surname = $surname,
                             s.github = $github
                     """,
-                        index=int(row['index']),
+                        index=(row['index']),
                         name=row['name'],
                         surname=row['surname'],
                         github=row['github']
                     )
                     
-                    # Utwórz relację belongs_to
+                    # Create belongs_to relationship
                     session.run("""
                         MATCH (s:Student {index: $index})
                         MATCH (p:Project {id: $project_id})
                         MERGE (s)-[r:belongs_to]->(p)
                         ON CREATE SET r.role = $role
                     """,
-                        index=int(row['index']),
-                        project_id=int(row['project_id']),
+                        index=row['index'],
+                        project_id=row['project_id'],
                         role=row['role']
                     )
             
-            print("Baza danych została wypełniona pomyślnie!")
+            print("Database filled successfully!")
 
     def clear_database(self):
         """
-        Wyczyść całą bazę danych (UWAGA: usuwa wszystkie dane!)
+        Clear entire database
         """
         with self.driver.session() as session:
             result = session.run("MATCH (n) DETACH DELETE n RETURN count(n) as deleted")
             deleted_count = result.single()['deleted']
-            print(f"Usunięto {deleted_count} węzłów wraz z relacjami")
+            print(f"Deleted {deleted_count} nodes with relationships")
 
 
 #test functions for methods
@@ -397,16 +939,25 @@ if __name__ == "__main__":
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
     # print(retriever.get_students())
+    # print(retriever.get_project_grades(project_id="2"))
+    # print(retriever.get_member_grades(index="2006"))
+    # print(retriever.is_leader(index="2007"))
+    # print(retriever.get_project_members(project_id="2"))
+    # print(retriever.get_user_info(index="2006"))
+    # print(retriever.has_graded_all_members(index="2007"))
+    # print(retriever.get_ungraded_members(index="2007"))
+    # print(retriever.has_graded_all_projects(index="2007"))
+    # print(retriever.get_ungraded_projects(index="2007"))
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------SET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-    # print(retriever.set_self_grade(grading_person_index = 2003, grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
-    # print(retriever.set_teammate_grade(grading_person_index = 2003, graded_person_index = 2001, grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
-    # print(retriever.set_leader_grade(grading_person_index = 2003, project_id = 2, grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
-    # print(retriever.set_project_grade(grading_person_index=2003, project_id=2, grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
-    # print(retriever.set_project_objectives_grade(grading_person_index=2001, project_id=2, grade=5.0, description="Założenia były jasno określone i realistyczne"))
+    # print(retriever.set_self_grade(grading_person_index = "2007", grade = 4.5, description = "Dobra praca, ale mogę się jeszcze poprawić"))
+    # print(retriever.set_teammate_grade(grading_person_index = "2007", graded_person_index = "2006", grade = 3.5, description="Solidna praca, ale wymaga poprawy w niektórych obszarach"))
+    # print(retriever.set_leader_grade(grading_person_index = "2007", project_id = "2", grade = 3.5, description="Świetna prowadził pracę zespołu i dostarczył wartościowe wyniki"))
+    # print(retriever.set_project_grade(grading_person_index = "2007", project_id = "2", grade=4.5, description="Projekt został zrealizowany zgodnie z założeniami"))
+    # print(retriever.set_project_objectives_grade(grading_person_index = "2007", project_id = "2", grade=5.0, description="Założenia były jasno określone i realistyczne"))
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
