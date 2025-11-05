@@ -40,7 +40,7 @@ class AgentWorkflow:
             logging.error(f"Failed to initialize Langfuse: {e}")
         with langfuse.start_as_current_span(name ="AgentWorkflow Run") as span:
             yield {"state": "STARTING"}
-            if self.state.name == "initial" or self.last_state is None or self.last_state.verification_prompt_name is None:
+            if self.state.name == "initial" or self.state.name =="done" or self.last_state is None or self.last_state.verification_prompt_name is None:
                 agent = await self.prepare_question_agent(self.state.prompt_name)
             else:
                 agent = await self.prepare_verification_agent(self.last_state.verification_prompt_name,self.state.prompt_name)
@@ -115,7 +115,7 @@ class AgentWorkflow:
     async def prepare_question_agent(self,prompt_name) ->Agent:
         try:
             #todo: dynamic handoffs based on allowed_handoffs
-            if prompt_name == "initial_prompt":
+            if prompt_name == "initial_prompt" or prompt_name == "done_prompt":
                 agent_prompt = await self.mcp_server.session.get_prompt(prompt_name)
             else:
                 agent_prompt = await self.mcp_server.session.get_prompt(prompt_name,{"question":self.state.question,"allowed_tools_instructions":self.state.tool_instructions})

@@ -310,9 +310,10 @@ async def objectives_evaluation_verification_prompt() -> str:
 )
 async def done_prompt() -> str:
     return f"""
-    Dziękuję za udział w wywiadzie gorących krzeseł. Twoje odpowiedzi zostały zapisane i będą wykorzystane do oceny projektu oraz współpracy zespołowej.
-    Życzę Ci powodzenia w dalszych etapach kursu i mam nadzieję, że zdobyte doświadczenia będą dla Ciebie wartościowe.
-    Do zobaczenia!
+    Jesteś agentem kończącym wywiad gorących krzeseł.
+    Twoim zadaniem jest podziękować użytkownikowi za udział w wywiadzie i zakończyć rozmowę w uprzejmy sposób.
+    Dziękuj użytkownikowi za jego czas i wkład.
+    Po podziękowaniu, zakończ rozmowę.
     """
 
 
