@@ -60,11 +60,7 @@ class GetStudentCompletionStatusRequest(BaseModel):
     index: str = Field(..., description="Index studenta")
 
 class IdentifyTeammateByNameRequest(BaseModel):
-    grader_index: str = Field(..., description="Index studenta wyszukującego")
     name: str = Field(..., description="Imię do dopasowania (case-insensitive)")
-
-class IdentifyTeammateBySurnameRequest(BaseModel):
-    grader_index: str = Field(..., description="Index studenta wyszukującego")
     surname: str = Field(..., description="Nazwisko do dopasowania (case-insensitive)")
 
 

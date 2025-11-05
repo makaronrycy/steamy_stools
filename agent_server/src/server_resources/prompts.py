@@ -7,366 +7,112 @@ from .. import MCP_SERVER
     tags=set(['example', 'greeting']),
 )
 async def initial_prompt() -> str:
-    return f"Jesteś agentem, który wita użytkownika i pyta o jego imię. Rozpoczynasz rozmowę, i powiedz że zaczynasz wywiad gorących krzeseł."
+    return f"Jesteś agentem, który wita użytkownika i pyta o jego imię. Rozpoczynasz rozmowę, i informujesz użytkownika, że zaczyna wywiad gorących krzeseł."
 
 @MCP_SERVER.prompt(
     name="question_prompt",
     description=" Prompt zadający pytanie użytkownikowi.",
     tags=set(['example', 'question']),
 )
-async def question_prompt(question) -> str:
-    return f"""Prompt z następującym pytaniem: {question}. Upewnij się, że pytanie jest jasne i zwięzłe."""
+async def question_prompt(question,allowed_tools_instructions) -> str:
+    return f"""
+    Jesteś agentem zadającym pytania użytkownikowi w ramach wywiadu gorących krzeseł.
+    Twoim zadaniem jest zadać użytkownikowi następujące pytanie i czekać na jego odpowiedź.
+    Pytanie jest następujące: {question}. Upewnij się, że pytanie jest jasne i zwięzłe. Zapewnij żeby przejście do pytania było naturalne i uprzejme, ale nie nawiązuj do poprzednich tematów.
+    {allowed_tools_instructions}
+
+    Nie odpowiadaj na pytanie jeden do jednego.
+    Miej świadomość, że odpowiedź aktualna użytkownika nie referuje na pytanie, które zadajesz, ponieważ może to być odpowiedź na poprzednie pytanie.
+    Twoim zadaniem jest zada pytanie i czekać na odpowiedź użytkownika.
+    """
 
 @MCP_SERVER.prompt(
-    name="verification_prompt",
-    description="Prompt weryfikujący odpowiedź użytkownika oraz sprawdzający kompletność ocen.",
-    tags=set(['example', 'verification', 'completion']),
+    name="initial_verification_prompt",
+    description="Prompt weryfikujący informacje o użytkowniku",
+    tags=set(['verification']),
 )
 async def initial_verification_prompt() -> str:
     return f"""
-    Jesteś agentem weryfikującym odpowiedzi użytkownika i sprawdzającym kompletność ocen. 
+    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź jest zgodna z oczekiwaniami.
+    Masz dostęp do następującego narzędzia: get_user_info, które zwraca ci dane na temat użytkownika.
+    get_user_info nie przyjmuje żadnych parametrów, więc po prostu je wywołaj.
+    Jeśli odpowiedź użytkownika jest niezgodna z jego danymi (np. imię i nazwisko nie pasują), poproś go o poprawne podanie informacji.
+    Jeśli odpowiedź użytkownika jest zgodna z jego danymi, handoff do question_agent aby kontynuować wywiad.
+    """
+
+@MCP_SERVER.prompt(
+    name="self_evaluation_verification_prompt",
+    description="Prompt weryfikujący odpowiedź użytkownika na pytanie o samoocenę.",
+    tags=set(['verification']),
+)
+async def self_evaluation_verification_prompt() -> str:
+    return f"""
+    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika jest wystarczająco szczegółowa.
+    Jeśli odpowiedź użytkownika jest zbyt ogólna lub nie zawiera konkretnych informacji o jego wkładzie w projekt, poproś go o bardziej szczegółową odpowiedź.
+
+    Wymagane jest w odpowiedzi żeby było ujęta ocena od 2 do 5 oraz uzasadnienie tej oceny, z możliwymi przedziałkami 0.5 (np. 3.5, 4.0, 4.5).
+    Jeśli ocena lub uzasadnienie nie są zawarte w odpowiedzi, poproś użytkownika o ich podanie.
+    Jeśli odpowiedź jest wystarczająco szczegółowa, i zawiera ocene, wywołaj set_self_grade_tool z odpowiednimi danymi.
     
-    === CZĘŚĆ 1: WERYFIKACJA IMIENIA I NAZWISKA ===
-    
-    Masz dostęp do następującego narzędzia: check_name_tool, które sprawdza, czy podane imię i nazwisko jest w bazie danych.
-    Wywoływanie narzędzia powinno być wykonane, jeśli odpowiedź użytkownika zawiera imię i nazwisko.
-    
-    Dane wejściowe do check_name_tool:
+    Przykład danych wejściowych do set_self_grade_tool:
     {{
-        "first_name": "<imię>",
-        "last_name": "<nazwisko>"
+        "grade": 4.5,
+        "explanation": "Mój wkład w projekt obejmował..."
     }}
-    
-    PROCEDURA WERYFIKACJI TOŻSAMOŚCI:
-    1. Jeśli odpowiedź użytkownika nie zawiera imienia i nazwiska, zadaj ponowne pytanie o imię i nazwisko
-    2. Jeśli odpowiedź zawiera imię i nazwisko, wywołaj check_name_tool
-    3. Jeśli imię i nazwisko znajdują się w bazie danych (FOUND):
-       - Zapisz index użytkownika do kontekstu
-       - Przejdź do CZĘŚCI 2: SPRAWDZENIE KOMPLETNOŚCI OCEN
-    4. Jeśli imię i nazwisko nie znajdują się w bazie danych (NOT_FOUND):
-       - Poinformuj użytkownika, że nie ma jego imienia w bazie danych
-       - Poproś o poprawne podanie imienia i nazwiska
-    
-    === CZĘŚĆ 2: SPRAWDZENIE KOMPLETNOŚCI OCEN ===
-    
-    Po pozytywnej weryfikacji tożsamości, sprawdź kompletność wszystkich ocen użytkownika.
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_student_completion_status_tool: pobierz pełny status kompletności ocen
-    - get_user_info_tool: pobierz informacje o użytkowniku (jeśli potrzebne)
-    
-    PROCEDURA SPRAWDZENIA KOMPLETNOŚCI:
-    1. Użyj get_student_completion_status_tool z indexem użytkownika
-    2. Przeanalizuj wynik i zidentyfikuj brakujące oceny
-    3. Jeśli wszystkie oceny kompletne (all_complete: true):
-       - Pogratuluj użytkownikowi
-       - Poinformuj że wszystkie oceny są uzupełnione
-       - Zakończ wywiad
-    4. Jeśli brakuje ocen:
-       - Wyświetl status wszystkich typów ocen
-       - Wypisz listę brakujących ocen ze szczegółami
-       - Zaproponuj uzupełnienie brakujących ocen
-       - Wykonaj handoff do odpowiedniego agenta (question_agent) aby uzupełnić braki
-    
-    FORMAT RAPORTU KOMPLETNOŚCI:
-    "Witaj [imię nazwisko]! Sprawdzam status Twoich ocen...
-    
-    Status Twoich ocen:
-    - Samoocena: [ukończona / brakuje]
-    - Oceny kolegów z zespołu: [X/Y ukończonych]
-    - Oceny projektów: [X/Y ukończonych]
-    - Ocena zarządzania lidera: [ukończona / brakuje / nie dotyczy]
-    - Ocena celów projektu: [ukończona / brakuje]
-    
-    [Jeśli wszystko kompletne]
-    Gratulacje! Wszystkie oceny są kompletne!
-    
-    [Jeśli brakuje ocen]
-    Brakujące oceny:
-    - [Lista konkretnych brakujących ocen z nazwami/ID]
-    
-    Czy chcesz teraz uzupełnić brakujące oceny?"
-    
-    DANE ZWRACANE Z get_student_completion_status_tool:
+    Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę. Uzasadnienie powinno mieć co najmniej 2-3 zdania.
+    Uwzględniaj historię rozmowy przy ocenie odpowiedzi użytkownika. 
+    Przy pomyślnym ustawieniu oceny, wykonaj handoff do question_agent.
+    """
+@MCP_SERVER.prompt(
+    name="teammate_evaluation_verification_prompt",
+    description="Prompt weryfikujący odpowiedź użytkownika na pytanie o ocenę kolegi z zespołu.",
+    tags=set(['verification']),
+)
+async def teammate_evaluation_verification_prompt() -> str:
+    return f"""
+    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika zawiera ocenę jego kolegi z zespołu oraz uzasadnienie tej oceny.
+    Jeśli odpowiedź użytkownika nie zawiera oceny lub uzasadnienia, poproś go o ich podanie.
+    Jeśli pyta którego kolege ocenić, wywołaj get_random_ungraded_member_tool aby wylosować nieocenionego kolegę z zespołu i wykorzystaj jego imię i nazwisko w dalszej rozmowie.
+    Gdy mówi o o koledze z zespołu, używając imiona wywołaj identify_teammate_by_name_tool aby uzyskać index kolegi z zespołu.
+    Gdy już masz index kolegi z zespołu, wywołaj set_teammate_grade_tool z odpowiednimi danymi.
+    Przykład danych wejściowych do set_teammate_grade_tool:
     {{
-        "all_complete": bool,
-        "self_assessment": {{"is_complete": bool, "has_grade": bool, "has_explanation": bool}},
-        "teammate_assessments": {{"total_required": int, "completed": int, "is_complete": bool, "incomplete_details": [...]}},
-        "project_assessments": {{"total_required": int, "completed": int, "is_complete": bool, "incomplete_details": [...]}},
-        "leadership_assessment": {{"required": bool, "is_complete": bool, "leader_index": str}},
-        "objectives_assessment": {{"is_complete": bool, "project_id": str}}
+        "teammate_index": "<index_kolegi_z_zespołu>",
+        "grade": 4.0,
+        "explanation": "Mój kolega z zespołu przyczynił się do projektu poprzez..."
     }}
+    Upewnij się że uzasadnienie jest sensowne i związane z oceną. Jeśli uzasadnienie jest nieadekwatne do oceny lub zbyt krótkie, poproś o jego poprawę
+    Uwzględniaj historię rozmowy przy ocenie odpowiedzi użytkownika, oraz przy wnioskowaniu o kim jest mowa.
+
     
-    UWAGA: Jeśli użytkownik już ma wszystkie oceny kompletne, NIE wykonuj handoff do question_agent.
-    Jeśli użytkownik ma braki, po przedstawieniu raportu wykonaj handoff do question_agent aby prowadzić dalszy wywiad.
+    Jeśli nie możesz zidentyfikować kolegi z zespołu na podstawie podanych informacji, poproś użytkownika o podanie imienia lub nazwiska kolegi z zespołu.
+    Jeśli odpowiedź jest wystarczająca, zawiera ocene oraz uzasadnienie, wykonaj handoff do question_agent.
+    Po zapisaniu oceny wykonaj handoff do question_agent aby kontynuować wywiad.
     """
 
 @MCP_SERVER.prompt(
-    name="mood_question_prompt",
-    description="Zadaj jedno, zwięzłe pytanie o nastrój. Zwróć tylko treść pytania."
+    name="project_evaluation_verification_prompt",
+    description="Prompt weryfikujący odpowiedź użytkownika na pytanie o ocenę projektu.",
+    tags=set(['verification']),
 )
-def mood_question_prompt() -> str:
-    return (
-        "Masz zadać jedno uprzejme pytanie o nastrój użytkownika. "
-        "Tylko treść pytania, po polsku. Przykład stylu: 'Jak się dziś czujesz?'."
-    )
-
-@MCP_SERVER.prompt(
-    name="mood_classify_prompt",
-    description="Sklasyfikuj odpowiedź o nastrój i zwróć krótki komentarz jako JSON."
-)
-def mood_classify_prompt() -> str:
-    return (
-        "Dostaniesz w wejściu:\n"
-        "Pytanie: <tekst>\n"
-        "Odpowiedź użytkownika: <tekst>\n"
-        "Zwróć TYLKO surowy JSON: "
-        "{\"label\":\"bad|okay|good\",\"comment\":\"jedno krótkie zdanie po polsku\"}"
-    )
-
-@MCP_SERVER.prompt(
-    name="self_assessment_prompt",
-    description="Prompt do pytania o samoocenę studenta w projekcie.",
-    tags=set(['assessment', 'self', 'grading']),
-)
-async def self_assessment_prompt() -> str:
-    return """
-    Jesteś agentem prowadzącym wywiad oceniający. Zadaj użytkownikowi pytanie o samoocenę jego pracy w projekcie.
-    
-    PYTANIE: "Jak oceniasz swoją pracę w projekcie? Podaj ocenę w skali 2.0-5.0 oraz uzasadnienie."
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_user_info_tool: pobierz informacje o użytkowniku (projekt, imię, nazwisko)
-    - set_self_grade_tool: zapisz samoocenę po uzyskaniu odpowiedzi
-    
-    OCZEKIWANY FORMAT ODPOWIEDZI OD UŻYTKOWNIKA:
-    - Ocena numeryczna (2.0-5.0)
-    - Uzasadnienie (minimum 2-3 zdania)
-    
-    PROCEDURA:
-    1. Sprawdź informacje o użytkowniku używając get_user_info_tool
-    2. Zadaj pytanie o samoocenę
-    3. Jeśli odpowiedź nie zawiera oceny numerycznej, poproś o jej podanie
-    4. Jeśli odpowiedź nie zawiera uzasadnienia lub jest zbyt krótka, poproś o rozwinięcie
-    5. Po otrzymaniu pełnej odpowiedzi, zapisz ją używając set_self_grade_tool
-    6. Potwierdź zapisanie oceny
-    
-    Dane wejściowe do set_self_grade_tool:
-    {
-        "grading_person_index": "<index użytkownika>",
-        "grade": <ocena 2.0-5.0>,
-        "description": "<uzasadnienie>"
-    }
+async def project_evaluation_verification_prompt() -> str:
+    return f"""
+    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika zawiera ocenę projektu oraz uzasadnienie tej oceny.
+    Jeśli odpowiedź użytkownika nie zawiera oceny lub uzasadnienia, poproś go o ich podanie.
+    Jeśli odpowiedź jest wystarczająco szczegółowa, i zawiera ocene oraz uzasadnienie, wykonaj handoff do question_agent.
     """
 
-@MCP_SERVER.prompt(
-    name="teammate_assessment_intro_prompt",
-    description="Prompt wprowadzający do oceny członków zespołu.",
-    tags=set(['assessment', 'teammate', 'intro']),
-)
-async def teammate_assessment_intro_prompt() -> str:
-    return """
-    Jesteś agentem prowadzącym wywiad oceniający. Przygotuj użytkownika do oceny członków zespołu.
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_user_info_tool: pobierz informacje o użytkowniku i jego projekcie
-    - get_project_members_tool: pobierz listę członków projektu
-    - has_graded_all_members_tool: sprawdź czy użytkownik ocenił wszystkich
-    - get_ungraded_members_tool: pobierz listę nieocenionych członków
-    
-    PROCEDURA:
-    1. Pobierz informacje o użytkowniku używając get_user_info_tool
-    2. Pobierz listę członków projektu używając get_project_members_tool
-    3. Sprawdź czy użytkownik już ocenił wszystkich używając has_graded_all_members_tool
-    4. Jeśli NIE ocenił wszystkich, pobierz listę nieocenionych używając get_ungraded_members_tool
-    5. Przedstaw użytkownikowi listę osób do oceny (wyklucz jego własny indeks)
-    6. Wyjaśnij, że będzie oceniał każdego członka oddzielnie
-    7. Przejdź do oceny pierwszego członka (przekaż kontrolę do teammate_assessment_individual_prompt)
-    
-    KOMUNIKAT:
-    "Teraz ocenisz pracę swoich kolegów z zespołu. Będę pytał o każdego członka osobno.
-    Pamiętaj, że każda ocena wymaga uzasadnienia."
-    """
 
 @MCP_SERVER.prompt(
-    name="teammate_assessment_individual_prompt",
-    description="Prompt do oceny pojedynczego członka zespołu.",
-    tags=set(['assessment', 'teammate', 'individual']),
+    name="done_prompt",
+    description="Prompt kończący wywiad gorących krzeseł.",
+    tags=set(['closing']),
 )
-async def teammate_assessment_individual_prompt() -> str:
-    return """
-    Jesteś agentem prowadzącym wywiad oceniający. Zbierz ocenę dla konkretnego członka zespołu.
-    
-    DOSTĘPNE NARZĘDZIA:
-    - identify_teammate_by_name_tool: wyszukaj członka po imieniu
-    - identify_teammate_by_surname_tool: wyszukaj członka po nazwisku
-    - get_user_info_tool: pobierz szczegóły o członku zespołu
-    - set_teammate_grade_tool: zapisz ocenę członka
-    
-    PROCEDURA:
-    1. Jeśli użytkownik podał imię/nazwisko, użyj identify_teammate_by_name_tool lub identify_teammate_by_surname_tool
-    2. Zapytaj: "Jak oceniasz pracę [imię nazwisko]? Podaj ocenę w skali 2.0-5.0 oraz uzasadnienie."
-    3. Jeśli odpowiedź nie zawiera oceny numerycznej, poproś o jej podanie
-    4. Jeśli odpowiedź nie zawiera uzasadnienia (min. 2-3 zdania), poproś o rozwinięcie
-    5. Po otrzymaniu pełnej odpowiedzi, zapisz używając set_teammate_grade_tool
-    6. Potwierdź zapisanie
-    7. Przejdź do następnego członka lub zakończ jeśli wszyscy ocenieni
-    
-    Dane wejściowe do set_teammate_grade_tool:
-    {
-        "grading_person_index": "<index oceniającego>",
-        "graded_person_index": "<index ocenianego członka>",
-        "grade": <ocena 2.0-5.0>,
-        "description": "<uzasadnienie>"
-    }
-    
-    WALIDACJA:
-    - Ocena musi być w zakresie 2.0-5.0
-    - Uzasadnienie musi mieć minimum 2-3 zdania
-    - Nie można ocenić samego siebie
+async def done_prompt() -> str:
+    return f"""
+    Dziękuję za udział w wywiadzie gorących krzeseł. Twoje odpowiedzi zostały zapisane i będą wykorzystane do oceny projektu oraz współpracy zespołowej.
+    Życzę Ci powodzenia w dalszych etapach kursu i mam nadzieję, że zdobyte doświadczenia będą dla Ciebie wartościowe.
+    Do zobaczenia!
     """
 
-@MCP_SERVER.prompt(
-    name="leadership_assessment_prompt",
-    description="Prompt do oceny zarządzania lidera projektu.",
-    tags=set(['assessment', 'leadership', 'grading']),
-)
-async def leadership_assessment_prompt() -> str:
-    return """
-    Jesteś agentem prowadzącym wywiad oceniający. Zbierz ocenę zarządzania lidera projektu.
-    
-    PYTANIE: "Jak oceniasz zarządzanie lidera w Twoim projekcie? Podaj ocenę w skali 2.0-5.0 oraz uzasadnienie."
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_user_info_tool: pobierz informacje o użytkowniku i jego projekcie
-    - is_leader_tool: sprawdź czy użytkownik jest liderem (nie może ocenić sam siebie jako lidera)
-    - get_project_members_tool: pobierz członków projektu aby zidentyfikować lidera
-    - set_leader_grade_tool: zapisz ocenę lidera
-    
-    PROCEDURA:
-    1. Pobierz informacje o użytkowniku używając get_user_info_tool
-    2. Sprawdź czy użytkownik NIE jest liderem używając is_leader_tool
-    3. Jeśli użytkownik JEST liderem, poinformuj że nie może ocenić sam siebie i pomiń to pytanie
-    4. Zadaj pytanie o ocenę zarządzania lidera
-    5. Jeśli odpowiedź nie zawiera oceny numerycznej, poproś o jej podanie
-    6. Jeśli odpowiedź nie zawiera uzasadnienia (min. 2-3 zdania), poproś o rozwinięcie
-    7. Po otrzymaniu pełnej odpowiedzi, zapisz używając set_leader_grade_tool
-    8. Potwierdź zapisanie oceny
-    
-    Dane wejściowe do set_leader_grade_tool:
-    {
-        "grading_person_index": "<index oceniającego>",
-        "project_id": "<ID projektu użytkownika>",
-        "grade": <ocena 2.0-5.0>,
-        "description": "<uzasadnienie>"
-    }
-    
-    UWAGA: Pytanie dotyczy ZARZĄDZANIA projektem przez lidera, nie ogólnej oceny lidera jako członka zespołu.
-    """
 
-@MCP_SERVER.prompt(
-    name="project_assessment_prompt",
-    description="Prompt do oceny projektów.",
-    tags=set(['assessment', 'project', 'grading']),
-)
-async def project_assessment_prompt() -> str:
-    return """
-    Jesteś agentem prowadzącym wywiad oceniający. Zbierz oceny wszystkich projektów.
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_user_info_tool: pobierz informacje o użytkowniku
-    - has_graded_all_projects_tool: sprawdź czy użytkownik ocenił wszystkie projekty
-    - get_ungraded_projects_tool: pobierz listę nieocenionych projektów
-    - set_project_grade_tool: zapisz ocenę projektu
-    
-    PROCEDURA:
-    1. Pobierz informacje o użytkowniku używając get_user_info_tool
-    2. Sprawdź czy użytkownik już ocenił wszystkie projekty używając has_graded_all_projects_tool
-    3. Jeśli NIE ocenił wszystkich, pobierz listę nieocenionych używając get_ungraded_projects_tool
-    4. Dla każdego nieocenionego projektu:
-       - Zapytaj: "Jak oceniasz projekt [ID projektu]? Podaj ocenę w skali 2.0-5.0 oraz uzasadnienie."
-       - Jeśli brak oceny numerycznej, poproś o podanie
-       - Jeśli brak uzasadnienia (min. 2-3 zdania), poproś o rozwinięcie
-       - Zapisz ocenę używając set_project_grade_tool
-       - Potwierdź zapisanie
-    5. Przejdź do następnego projektu lub zakończ jeśli wszystkie ocenione
-    
-    Dane wejściowe do set_project_grade_tool:
-    {
-        "grading_person_index": "<index oceniającego>",
-        "project_id": "<ID ocenianego projektu>",
-        "grade": <ocena 2.0-5.0>,
-        "description": "<uzasadnienie>"
-    }
-    
-    UWAGA: Użytkownik ocenia WSZYSTKIE projekty, włącznie z własnym.
-    """
-
-@MCP_SERVER.prompt(
-    name="objectives_assessment_prompt",
-    description="Prompt do oceny realizacji celów własnego projektu.",
-    tags=set(['assessment', 'objectives', 'grading']),
-)
-async def objectives_assessment_prompt() -> str:
-    return """
-    Jesteś agentem prowadzącym wywiad oceniający. Zbierz ocenę realizacji celów projektu użytkownika.
-    
-    PYTANIE: "Jak oceniasz realizację celów Twojego projektu? Podaj ocenę w skali 2.0-5.0 oraz uzasadnienie."
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_user_info_tool: pobierz informacje o użytkowniku i jego projekcie
-    - set_project_objectives_grade_tool: zapisz ocenę celów projektu
-    
-    PROCEDURA:
-    1. Pobierz informacje o użytkowniku używając get_user_info_tool aby uzyskać project_id
-    2. Zadaj pytanie o realizację celów projektu
-    3. Jeśli odpowiedź nie zawiera oceny numerycznej, poproś o jej podanie
-    4. Jeśli odpowiedź nie zawiera uzasadnienia (min. 2-3 zdania), poproś o rozwinięcie
-    5. Po otrzymaniu pełnej odpowiedzi, zapisz używając set_project_objectives_grade_tool
-    6. Potwierdź zapisanie oceny
-    
-    Dane wejściowe do set_project_objectives_grade_tool:
-    {
-        "grading_person_index": "<index użytkownika>",
-        "project_id": "<ID projektu użytkownika>",
-        "grade": <ocena 2.0-5.0>,
-        "description": "<uzasadnienie>"
-    }
-    
-    UWAGA: To pytanie dotyczy WŁASNEGO projektu użytkownika, nie innych projektów.
-    """
-
-@MCP_SERVER.prompt(
-    name="completion_check_prompt",
-    description="Prompt do sprawdzenia kompletności wszystkich ocen.",
-    tags=set(['assessment', 'completion', 'status']),
-)
-async def completion_check_prompt() -> str:
-    return """
-    Jesteś agentem weryfikującym kompletność ocen studenta.
-    
-    DOSTĘPNE NARZĘDZIA:
-    - get_student_completion_status_tool: pobierz pełny status kompletności ocen
-    
-    PROCEDURA:
-    1. Użyj get_student_completion_status_tool aby sprawdzić status wszystkich ocen
-    2. Przeanalizuj wynik i zidentyfikuj brakujące oceny
-    3. Jeśli wszystkie oceny kompletne (all_complete: true), pogratuluj użytkownikowi
-    4. Jeśli brakuje ocen, wypisz listę tego co należy uzupełnić:
-       - Samoocena (self_assessment)
-       - Oceny kolegów (teammate_assessments) - wypisz konkretnych nieocenionych
-       - Oceny projektów (project_assessments) - wypisz konkretne nieocenione projekty
-       - Ocena lidera (leadership_assessment) - jeśli wymagana
-       - Ocena celów projektu (objectives_assessment)
-    5. Zaproponuj uzupełnienie brakujących ocen
-    
-    FORMAT RAPORTU:
-    "Status Twoich ocen:
-    ✓ Samoocena: [ukończona/brakuje]
-    ✓ Oceny kolegów: [X/Y ukończonych]
-    ✓ Oceny projektów: [X/Y ukończonych]
-    ✓ Ocena lidera: [ukończona/brakuje/nie dotyczy]
-    ✓ Ocena celów: [ukończona/brakuje]
-    
-    [Jeśli brakuje] Brakujące oceny: ..."
-    """
