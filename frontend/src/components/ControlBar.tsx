@@ -5,16 +5,14 @@ interface ControlBarProps {
   isConnected: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
-  onGetQuestion: () => void;
-  onGetLeaderboard: () => void;
+  onNextQuestion: () => void;
 }
 
 export const ControlBar: React.FC<ControlBarProps> = ({
   isConnected,
   onConnect,
   onDisconnect,
-  onGetQuestion,
-  onGetLeaderboard,
+  onNextQuestion,
 }) => {
   return (
     <div className="control-bar">
@@ -24,19 +22,14 @@ export const ControlBar: React.FC<ControlBarProps> = ({
       >
         {isConnected ? "🟢 Połączono" : "🔌 Połącz WS"}
       </button>
+
       <button
-        onClick={onGetQuestion}
+        onClick={onNextQuestion}
         disabled={!isConnected}
         className="btn-info"
+        title="Następne pytanie w wywiadzie"
       >
-        🎲 Losuj pytanie
-      </button>
-      <button
-        onClick={onGetLeaderboard}
-        disabled={!isConnected}
-        className="btn-warning"
-      >
-        🏆 Ranking
+        🎯 Następne pytanie w wywiadzie
       </button>
     </div>
   );
