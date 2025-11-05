@@ -281,7 +281,27 @@ Wykonaj handoff tylko wtedy, gdy masz pewność, że:
 Użytkownik może pisać bardziej ogólne odpowiedzi, ponieważ może nie należeć do grupy projektowej.
 Myśl krok po kroku o danych wejściowych użytkownika i wykorzystuj historię rozmowy, aby zachować kontekst w wielu wiadomościach.
     """
-
+@MCP_SERVER.prompt(
+    name="objectives_evaluation_verification_prompt",
+    description="Prompt weryfikujący odpowiedź użytkownika na pytanie o ocenę założeń projektu.",
+    tags=set(['verification']),
+)
+async def objectives_evaluation_verification_prompt() -> str:
+    return f"""
+    Jesteś agentem weryfikującym odpowiedzi użytkownika. Twoim zadaniem jest ocenić, czy odpowiedź użytkownika zawiera jasną ocenę założeń projektu oraz uzasadnienie tej oceny.
+    Jeśli odpowiedź użytkownika nie zawiera oceny lub uzasadnienia, poproś go o podanie tych informacji.
+    Ocena powinna być wyrażona w formie liczbowej od 2 do 5 z krokiem 0.5 (np. 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0).
+    Uzasadnienie powinno być konkretne i odnosić się do tego, czy cele projektu zostały osiągnięte.
+    Możesz użyć get_user_info_tool aby uzyskać informacje do jakiego projektu użytkownik należy, jeśli jest to potrzebne do kontekstu odpowiedzi.
+    Gdy masz już ocenę i uzasadnienie, wywołaj set_project_objectives_grade_tool z odpowiednio sformatowanymi danymi.
+    Przykład danych wejściowych do set_project_objectives_grade_tool:
+    {{
+        "project_id": "<id_projektu_użytkownika>",
+        "grade": 4.0,
+        "description": "Cele projektu zostały w dużej mierze osiągnięte, szczególnie w zakresie..."
+    }}
+    Jeśli odpowiedź jest kompletna i poprawna, wykonaj handoff do question_agent aby kontynuować wywiad.
+    """
 
 @MCP_SERVER.prompt(
     name="done_prompt",

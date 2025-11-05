@@ -2,6 +2,7 @@ from .agent import AgentWorkflow
 from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
 from sanic import Sanic,response,request
 from .states import AVAILABLE_STATES
+from .utils import context_aware_filter
 from langfuse import Langfuse
 import json
 import os
@@ -32,9 +33,11 @@ def get_app() -> Sanic:
                         url=f'{MCP_SERVER_URL}/mcp',
                         headers={
                             "user_id": str(user_id),
-                        },
-                        timeout=60,
-                    )
+                        },     
+                    ),
+                    client_session_timeout_seconds=60.0,
+                    tool_filter=context_aware_filter
+
                 )
                 print(f"MCP server object created, attempting connection...")
                 await mcp_server.connect()
@@ -88,6 +91,7 @@ def get_app() -> Sanic:
 
             question = []
             next_state_key = current_state_key  # Default: stay in same state if NEXT_QUESTION not reached
+            current_state_key = last_state_key
             async for step in agent_workflow.run():
                 if step["state"] == "ANSWERING":
                     question.append(step.get("answer", ""))

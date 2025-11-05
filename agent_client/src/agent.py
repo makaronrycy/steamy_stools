@@ -2,7 +2,7 @@
 import asyncio
 from typing import AsyncGenerator, Dict, Any
 from agents.mcp import MCPServerStreamableHttp
-from agents import Agent,Runner,handoff
+from agents import Agent,Runner,handoff,ModelSettings
 import logging
 from langfuse import Langfuse
 from .states import State
@@ -61,7 +61,8 @@ class AgentWorkflow:
                         yield {"state": "ANSWERING", "answer": step.data.delta}
                 elif step.type == "agent_updated_stream_event":
                     yield {"state": "THINKING", "thought": step.type}
-                    match step.new_agent.name:
+                    agent_type = step.new_agent.name.split("/")[0]
+                    match agent_type:
                         case "VerificationAgent":
                             print("VerificationAgent handoff")
                             yield {"state": "VERIFYING"}
@@ -92,10 +93,9 @@ class AgentWorkflow:
 
     async def prepare_verification_agent(self,verification_prompt_name,question_prompt_name) ->Agent:
         try:
-            #todo: dynamic handoffs based on allowed_handoffs
             agent_prompt = await self.mcp_server.session.get_prompt(verification_prompt_name)
             agent = Agent(
-                name="VerificationAgent",
+                name=f"VerificationAgent/{self.last_state.name}",
                 model = self.model,
                 instructions=agent_prompt.messages[0].content.text,
                 handoffs=[
@@ -105,6 +105,8 @@ class AgentWorkflow:
                     )
                 ],
                 mcp_servers=[self.mcp_server],
+                model_settings=ModelSettings(tool_choice="required")
+
             )
             return agent
         except Exception as e:
@@ -118,7 +120,7 @@ class AgentWorkflow:
             else:
                 agent_prompt = await self.mcp_server.session.get_prompt(prompt_name,{"question":self.state.question,"allowed_tools_instructions":self.state.tool_instructions})
             agent = Agent(
-                name="QuestionAgent",
+                name=f"QuestionAgent/{self.state.name}",
                 model = self.model,
                 instructions=agent_prompt.messages[0].content.text,
                 mcp_servers=[self.mcp_server],
