@@ -8,8 +8,8 @@ import stat
 from pymongo import MongoClient
 from git import Repo
 from dotenv import load_dotenv
-from Detect_Useless_Commits import detect_useless_commits
 from sklearn.preprocessing import MinMaxScaler
+from Detect_Useless_Commits import detect_useless_commits
 from regularity_metrics import evaluate_commit_regularities
 
 load_dotenv()
@@ -132,14 +132,12 @@ def get_sonar_metrics(project_key):
 def remove_repo_dir(repo_dir):
 
     def on_rm_error(func, path, exc_info):
-        # zdejmujemy atrybut 'read-only' i próbujemy usunąć ponownie
         os.chmod(path, stat.S_IWRITE)
         os.remove(path)
 
     if os.path.exists(repo_dir):
         try:
             shutil.rmtree(repo_dir, onexc=on_rm_error)
-            print(f"Usunięto folder: {repo_dir}")
         except Exception as e:
             print(f"Nie udało się całkowicie usunąć {repo_dir}: {e}")
 
@@ -195,12 +193,14 @@ def reset_to_latest_and_detect(repo):
 
     return results
     
-def save_to_database(client, data):
-    github_db = client["GitHubDB"]
-    
-    useless_commits = github_db["useless_commits"]
-    useless_commits.create_index("sha", unique=True)
-    useless_commits.insert_many(data)
+def db_save(client, db_name:str, table_name:str, data):
+    github_db = client[db_name]
+    db = github_db[table_name]
+
+    db.delete_many({})
+
+    if not data.empty:
+        db.insert_many(data.to_dict("records"))
 
 
 def date_preprocessing(data):
@@ -260,7 +260,7 @@ def evaluate_commits(metrics_df, useless_commits):
     metrics_df = compute_commit_score(metrics_df)
     return metrics_df
 
-if __name__ == "__main__":
+def full_github_review():
 
     remove_repo_dir(REPO_DIR)
     
@@ -277,20 +277,16 @@ if __name__ == "__main__":
     for useless_commit in useless_commits:
         
         commits = commits[commits['sha'] != useless_commit['sha']]
-        print("\n", useless_commit)
     
     commits.reset_index(drop = True, inplace = True)
     commits_len = len(commits)
-    client = MongoClient(MONGO_URI)
-    #save_to_database(client, useless_commits)
-    
+    print("/n",commits_len, "------------------")
     create_sonar_properties_file(commit_key)
-    print(f"Znaleziono {commits_len} commitów.")
     
     
     oldest_commit = commits.iloc[0]["sha"]
     all_metrics = []
-    for i in range(commits_len-1):
+    for i in range(commits_len):
 
         commit = commits.iloc[i]["sha"]
         repo.git.checkout(commit)
@@ -314,5 +310,18 @@ if __name__ == "__main__":
     
 
     metrics_processing(metrics_df)
+
     regularity_df = evaluate_commit_regularities(dfs_names.copy(), unique_names.copy(), PROJECT_START_TIME, WEEKS)
-    print(metrics_df.to_string())
+
+    metrics_scored_df = evaluate_commits(metrics_df.copy(), useless_commits)
+    avg_scores_raw = metrics_scored_df.groupby('author')['commit_score'].mean().reset_index()
+    avg_scores_raw['commit_score'] = (avg_scores_raw['commit_score'] / 0.25).round() * 0.25
+    merged = pd.merge(regularity_df, avg_scores_raw, on="author", how="outer")
+
+    merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
+    merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
+    avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
+
+
+    client = MongoClient(MONGO_URI)
+    db_save(client,"GitHubDB","score", avg_scores)

@@ -25,45 +25,45 @@ def evaluate_commit_regularities(dfs_names, unique_names, PROJECT_START_TIME, WE
         
         
         if total_commits >= WEEKS:
-            if missing_weeks <= 1:
+            if missing_count <= 1:
                 score = 5.0
-            elif missing_weeks == 2:
+            elif missing_count == 2:
                 score = 4.5
-            elif missing_weeks == 3:
+            elif missing_count == 3:
                 score = 4.0
-            elif missing_weeks == 4:
+            elif missing_count == 4:
                 score = 3.5
-            elif missing_weeks == 5:
+            elif missing_count == 5:
                 score = 3.0
-            elif missing_weeks >= 6:
+            elif missing_count >= 6:
                 score = 2.0
         
         elif total_commits == WEEKS - 1:
-            if missing_weeks == 1:
+            if missing_count == 1:
                 score = 4.5
-            elif missing_weeks == 2:
+            elif missing_count == 2:
                 score = 4.0
-            elif missing_weeks == 3:
+            elif missing_count == 3:
                 score = 3.5
-            elif missing_weeks == 4:
+            elif missing_count == 4:
                 score = 3.0
-            elif missing_weeks >= 5:
+            elif missing_count >= 5:
                 score = 2.0
             
         elif total_commits == WEEKS - 2:
-            if missing_weeks == 2:
+            if missing_count == 2:
                 score = 4.0
-            elif missing_weeks == 3:
+            elif missing_count == 3:
                 score = 3.5
-            elif missing_weeks == 4:
+            elif missing_count == 4:
                 score = 3.0
-            elif missing_weeks >= 5:
+            elif missing_count >= 5:
                 score = 2.0
         
         elif total_commits == WEEKS - 3:
-            if missing_weeks == 3:
+            if missing_count == 3:
                 score = 3.0
-            elif missing_weeks > 3:
+            elif missing_count > 3:
                 score = 2.0
         else:
             score = 2.0

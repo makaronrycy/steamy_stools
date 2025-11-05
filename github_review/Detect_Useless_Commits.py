@@ -13,9 +13,9 @@ Funkcja do analizy repozytorium Git w celu wykrycia commitów o małej wartości
 
 import subprocess
 import re
-
+import os
 # ==== KONFIGURACJA ====
-SMALL_CHANGE_THRESHOLD = 3  # total lines changed (added + removed)
+SMALL_CHANGE_THRESHOLD = int(os.getenv("SMALL_CHANGE_THRESHOLD", "3"))  # total lines changed (added + removed)
 COMMENT_REGEX = re.compile(r'^[\+\-]\s*(#|//|/\*|\*|<!--|-->)')
 MERGE_PR_REGEX = re.compile(r"^Merge (pull request|branch)", re.IGNORECASE)
 BINARY_EXTENSIONS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".zip", ".png", ".jpg", ".jpeg", ".gif")
