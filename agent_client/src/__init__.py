@@ -32,7 +32,8 @@ def get_app() -> Sanic:
                         url=f'{MCP_SERVER_URL}/mcp',
                         headers={
                             "user_id": str(user_id),
-                        }
+                        },
+                        timeout=60,
                     )
                 )
                 print(f"MCP server object created, attempting connection...")
@@ -103,7 +104,7 @@ def get_app() -> Sanic:
                         next_state_data = next_state_result.model_dump()
                         next_state_dict = json.loads(next_state_data["content"][0]["text"])
                         # Use 'next_state' field which indicates what should be next based on completion
-                        next_state_key = next_state_dict.get("next_state", current_state.next_state)
+                        next_state_key = next_state_dict.get("next_state", current_state_key)
                         print(f"Next state determined: {next_state_key}")
                         print(f"Reason: {next_state_dict.get('reason', 'N/A')}")
 

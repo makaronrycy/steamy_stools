@@ -196,7 +196,6 @@ async def get_random_ungraded_member_tool() -> str:
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-
 @MCP_SERVER.tool(
     name="has_graded_all_projects_tool",
     description="Sprawdza, czy użytkownik ocenił wszystkie projekty.",
@@ -342,7 +341,7 @@ async def get_conversation_context_tool() -> dict:
             return {"error": "Could not retrieve or create session"}
 
         # Get conversation history (last 10 messages)
-        history = retriever.get_conversation_history(session_id=session['session_id'], limit=10)
+        history = retriever.get_conversation_history(session_id=session['session_id'], limit=5)
 
         retriever.close()
 
@@ -533,7 +532,7 @@ async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
             description=param.description
         )
         retriever.close()
-        return f"SUCCESS: {param.grading_person_index} graded {param.graded_person_index} with {param.grade}"
+        return f"SUCCESS: {user_index} graded {param.graded_person_index} with {param.grade}"
     except Exception as e:
         return f"ERROR: {str(e)}"
 
@@ -556,7 +555,7 @@ async def set_leader_grade_tool(param: SetLeaderGradeRequest) -> str:
             description=param.description
         )
         retriever.close()
-        return f"SUCCESS: leader of project {param.project_id} graded {param.grade} by {param.grading_person_index}"
+        return f"SUCCESS: leader of project {param.project_id} graded {param.grade} by {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"
 
@@ -580,7 +579,7 @@ async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
             description=param.description
         )
         retriever.close()
-        return f"SUCCESS: project {param.project_id} graded {param.grade} by {param.grading_person_index}"
+        return f"SUCCESS: project {param.project_id} graded {param.grade} by {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"
 
@@ -604,6 +603,6 @@ async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequ
             description=param.description
         )
         retriever.close()
-        return f"SUCCESS: objectives of project {param.project_id} graded {param.grade} by {param.grading_person_index}"
+        return f"SUCCESS: objectives of project {param.project_id} graded {param.grade} by {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"

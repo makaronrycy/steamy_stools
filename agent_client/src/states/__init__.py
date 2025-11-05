@@ -58,6 +58,7 @@ AVAILABLE_STATES = {
         allowed_tools=[],
         prompt_name="question_prompt",
         verification_prompt_name="project_evaluation_verification_prompt",
+        tool_instructions="Jeśli pytanie jest o ocene projektu wykorzystaj get_ungraded_project_tool aby uzyskać nazwę nieocenionych projektów. Następnie wybierz JEDEN z nich i zapytaj się o ocenienie go. Nie wspominaj o użyciu narzędzia w rozmowie.",
         question="Jaką ocenę wystawiłbyś projektowi i dlaczego?",
     ),
     "done": State(
