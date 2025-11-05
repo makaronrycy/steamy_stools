@@ -56,7 +56,7 @@ def main():
     print(f"\n Agent: {question}\n")
 
     # Conversation loop
-    while next_state != "done":
+    while current_state != "done":
         answer = input(" Your answer (or 'exit' to quit): ").strip()
         if not answer or answer.lower() == 'exit':
             print("\n Exiting conversation.")

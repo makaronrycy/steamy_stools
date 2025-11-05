@@ -287,28 +287,28 @@ class Neo4jRetriever:
     def get_ungraded_projects(self, index: str):
         """
         Get list of ungraded projects
-        
+
         Args:
             index: Grader index
-            
+
         Returns:
             List of ungraded project IDs
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (project:Project)
-                WITH project
                 MATCH (grader:Student {index: $index})
-                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(project)
-                WHERE answer.question_type = "project_assessment"
-                WITH project, answer
-                WHERE answer IS NULL
-                RETURN project.id as ungraded_project_id
+                MATCH (project:Project)
+                WHERE NOT EXISTS {
+                    MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(project)
+                    WHERE answer.question_type = "project_assessment"
+                }
+                RETURN
+                    project.id as ungraded_project_id,
+                    project.name as project_name
                 ORDER BY project.id
             """, index=index)
-            
-            return [record["ungraded_project_id"] for record in result]
 
+            return [{"project_id": record["ungraded_project_id"], "project_name": record["project_name"]} for record in result]
     def get_student_completion_status(self, index: str):
         """
         Check completion status of all answer types for a given student
@@ -823,7 +823,7 @@ class Neo4jRetriever:
                 }
             return None
 
-    def get_conversation_history(self, session_id: str, limit = None):
+    def get_conversation_history(self, session_id: str, limit = 5):
         """
         Get conversation history for a session
 
@@ -842,7 +842,7 @@ class Neo4jRetriever:
                        cm.content as content,
                        cm.state_at_time as state_at_time,
                        cm.timestamp as timestamp
-                ORDER BY cm.timestamp ASC
+                ORDER BY cm.timestamp DESC
             """
 
             if limit is not None:
