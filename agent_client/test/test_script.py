@@ -7,7 +7,6 @@ ENDPOINT = "/start_agent"
 HEADERS = {"Content-Type": "application/json"}
 
 def post(payload):
-    # use plain HTTP for a non-TLS local server
     conn = http.client.HTTPConnection(HOST, PORT)
     conn.request("POST", ENDPOINT, json.dumps(payload), HEADERS)
     res = conn.getresponse()
@@ -19,28 +18,24 @@ def post(payload):
         return {"raw": data}
 
 def main():
-    init_payload = {"state": "initial", "last_state": "", "anwser": ""}
+    init_payload = {"session_id": "test_user_1", "answer": ""}
     resp = post(init_payload)
     print("Initial response:")
     print(resp)
 
     question = resp.get("question", "")
-    next_state = resp.get("next_state", "mood")
-    current_state = resp.get("current_state", "initial")
     print("\nAgent question:\n", question)
-    print("Next state:", next_state, "Current state:", current_state)
 
     while True:
         answer = input("\nYour answer (empty to exit): ").strip()
         if not answer:
             break
-        follow_payload = {"state": next_state, "last_state": current_state, "anwser": answer}
+        
+        follow_payload = {"session_id": "test_user_1", "answer": answer}
         resp = post(follow_payload)
         print("\nServer response:")
         print(resp)
-        # update for next turn
-        next_state = resp.get("next_state", next_state)
-        current_state = resp.get("current_state", current_state)
+        print("\nAgent:", resp.get("question", ""))
 
 if __name__ == "__main__":
     main()

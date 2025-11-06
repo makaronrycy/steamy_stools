@@ -1,56 +1,90 @@
 from .agent import AgentWorkflow
 from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
-from sanic import Sanic,response,request
-from .states import AVAILABLE_STATES
-from langfuse import Langfuse
+from sanic import Sanic, response, request
+from .conversation_flow import ConversationFlow
+import logging 
+
 def get_app() -> Sanic:
-    app = Sanic("AgentClientApp")
+    app = Sanic("HotSeatsApp")
+    
+    # Przechowuj sesje rozmów
+    conversation_flows = {}
 
     @app.route("/start_agent", methods=["POST"])
-    async def start_agent(request: request.Request):
-        """Change agent according to request data and to the field stated there."""
-        data = request.json
-        print(f"Received data: {data}")
-        state_key = data.get("state", "initial")
-        last_state_key = data.get("last_state", None)
-        print(f"State key: {state_key}, Last state key: {last_state_key}")
-        state = AVAILABLE_STATES.get(state_key, AVAILABLE_STATES["initial"])
+    async def start_agent(req: request.Request):
+        data = req.json
         
-        if last_state_key:
-            last_state = AVAILABLE_STATES.get(last_state_key, None)
-            if last_state:
-                next_state = last_state.name
-            else:
-                next_state = state.next_state
-                print(f"Warning: last_state_key '{last_state_key}' not found in AVAILABLE_STATES")
+        session_id = data.get("session_id", "default")
+        user_answer = data.get("answer", "")
+        
+        # Pobierz/stwórz ConversationFlow - WSPÓŁDZIELONY między requestami
+        if session_id in conversation_flows:
+            flow = conversation_flows[session_id]
+            logging.info(f"Loaded session {session_id}")
+            logging.info(f"Current state: {flow.to_dict()}")
         else:
-            last_state = None
-            next_state = state.next_state
+            flow = ConversationFlow()
+            conversation_flows[session_id] = flow
+            logging.info(f"New session {session_id}")
         
-        user_anwser = data.get("anwser", "No anwser for last question.")
-
+        # Połącz z MCP
         mcp_server = MCPServerStreamableHttp(
-            params=MCPServerStreamableHttpParams(
-                url='http://localhost:7000/mcp'
-            )
+            params=MCPServerStreamableHttpParams(url='http://localhost:7000/mcp')
         )
         await mcp_server.connect()
         
-        agent_workflow = AgentWorkflow(state=state, mcp_server=mcp_server,user_anwser=user_anwser, last_state=last_state)
-        question = []
-        async for step in agent_workflow.run():
+        # Uruchom workflow
+        workflow = AgentWorkflow(
+            user_answer=user_answer,
+            conversation_flow=flow,
+            mcp_server=mcp_server
+        )
+        
+        question_parts = []
+        context = None
+        
+        # Stream odpowiedzi
+        async for step in workflow.run():
             if step["state"] == "ANSWERING":
-                question.append(step["answer"])
-            if step["state"] == "NEXT_QUESTION":
-                #To znaczy że aktualne pytanie zostało zadane, więc przechodzimy do następnego stanu
-                next_state = state.next_state
+                question_parts.append(step["answer"])
+            elif step["state"] == "DONE":
+                context = step.get("context")
+                logging.info(f"Received DONE with context: {context}")
+        
         await mcp_server.cleanup()
+        
+        full_question = ''.join(question_parts)
+        
+        # Użyj context z ConversationFlow
+        if not context:
+            context = flow.to_dict()
+            logging.info(f"Using flow.to_dict() as context: {context}")
+        
+        # Sprawdź czy zakończone (wszystkie oceny kompletne)
+        is_complete = (
+            context.get("verified") and
+            context.get("has_self_grade") and
+            len(context.get("graded_teammates", [])) > 0
+        )
+        
         res = {
-            "status": "completed",
-            "question": ' '.join(question),
-            "next_state": next_state,
-            "current_state": state.name
+            "status": "done" if is_complete else "in_progress",
+            "question": full_question,
+            "session_id": session_id,
+            "context": context,
+            "is_complete": is_complete,
         }
-        return response.json(res,ensure_ascii=False)
+        # ZAPISZ flow do słownika PRZED returnem!
+        conversation_flows[session_id] = flow
+        logging.info(f"Saved session {session_id} state: {flow.to_dict()}")
+        return response.json(res, ensure_ascii=False)
+    
+    @app.route("/reset_session", methods=["POST"])
+    async def reset_session(req: request.Request):
+        """Reset sesji"""
+        session_id = req.json.get("session_id", "default")
+        if session_id in conversation_flows:
+            del conversation_flows[session_id]
+        return response.json({"status": "reset"})
 
     return app
