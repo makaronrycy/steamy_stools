@@ -4,42 +4,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from contextlib import asynccontextmanager
 from typing import List, Optional, Any, Dict
-import os
+import json
 
-from fastmcp import Client  # klient FastMCP
-from openai import OpenAI
+from fastmcp import Client  
 
 def to_jsonable(obj: Any) -> Any:
-    """Zapewnia JSON-owalność wyniku MCP (CallToolResult .data)."""
+    """Upewnia się, że wynik jest JSON-owalny."""
     payload = getattr(obj, "data", obj)
     try:
-        # szybki test serializacji
-        jsonable_encoder(payload)
+        json.dumps(payload)
         return payload
-    except Exception:
+    except TypeError:
         return jsonable_encoder(payload)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # MCP client uruchamia server_mcp.py jako subprocess (STDIO)
     client = Client("server_mcp.py")
     await client.__aenter__()
     await client.ping()
     app.state.mcp_client = client
-
-    # OpenAI (LLM) — klucz z ENV
-    app.state.openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
     yield
-
     await client.__aexit__(None, None, None)
 
 app = FastAPI(title="Hot Seat Game API", lifespan=lifespan)
 
-# CORS: w dev pozwól na frontend pod localhost:5173
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],  # dostosuj w prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,7 +59,7 @@ async def root():
     return {
         "name": "Hot Seat Game API",
         "version": "2.0 (FastMCP client)",
-        "endpoints": {"websocket": "/ws", "tools": "/api/tools/{tool_name}", "health": "/health", "llm": "/api/llm"},
+        "endpoints": {"websocket": "/ws", "tools": "/api/tools/{tool_name}", "health": "/health"},
     }
 
 @app.get("/health")
@@ -85,7 +76,7 @@ async def websocket_endpoint(websocket: WebSocket):
             arguments = data.get("arguments") or {}
 
             try:
-                result_obj = await app.state.mcp_client.call_tool(tool_name, arguments)  # type: ignore
+                result_obj = await app.state.mcp_client.call_tool(tool_name, arguments)
                 payload = to_jsonable(result_obj)
                 response = {"type": "tool_response", "tool": tool_name, "data": {"result": payload}}
             except Exception as e:
@@ -99,26 +90,8 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.post("/api/tools/{tool_name}")
 async def call_tool(tool_name: str, arguments: Dict[str, Any]):
     try:
-        result_obj = await app.state.mcp_client.call_tool(tool_name, arguments)  # type: ignore
+        result_obj = await app.state.mcp_client.call_tool(tool_name, arguments)
         return {"result": to_jsonable(result_obj)}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/llm")
-async def chat_with_llm(request: Dict[str, Any]):
-    """Proxy do LLM (OpenAI) — klucz po stronie serwera, front nie widzi SECRETów."""
-    try:
-        message = request.get("message", "")
-        response = app.state.openai.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "Jesteś pomocnym asystentem w grze 'Gorące krzesła'."},
-                {"role": "user", "content": message}
-            ],
-            max_tokens=512,
-            temperature=0.7
-        )
-        return {"response": response.choices[0].message.content}
     except Exception as e:
         return {"error": str(e)}
 

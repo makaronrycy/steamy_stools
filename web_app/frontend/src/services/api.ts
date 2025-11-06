@@ -24,4 +24,25 @@ export const api = {
       return false;
     }
   },
+
+  // === GitHub Analysis ===
+  async analyzeGithub(): Promise<{ status: string; message: string }> {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/github/analyze`);
+      return response.data;
+    } catch (error) {
+      console.error("GitHub analysis error:", error);
+      throw error;
+    }
+  },
+
+  async getGithubAnalysisStatus(): Promise<{ status: string; message: string }> {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/github/status`);
+      return response.data;
+    } catch (error) {
+      console.error("GitHub status error:", error);
+      throw error;
+    }
+  },
 };
