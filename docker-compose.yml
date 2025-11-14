@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Agent Server (MCP Server)
+  agent-server:
+    build:
+      context: ./agent_server
+      dockerfile: dockerfile
+    container_name: steamy-agent-server
+    ports:
+      - "10000:10000"
+    env_file:
+      - ./agent_server/.env
+    networks:
+      - steamy-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:10000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Agent Client
+  agent-client:
+    build:
+      context: ./agent_client
+      dockerfile: dockerfile
+    container_name: steamy-agent-client
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./agent_client/.env
+    environment:
+      - MCP_SERVER_URL=http://agent-server:10000
+    depends_on:
+      - agent-server
+    networks:
+      - steamy-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  steamy-network:
+    driver: bridge
