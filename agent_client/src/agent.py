@@ -27,7 +27,7 @@ class AgentWorkflow:
         self.state = state
         self.last_state = last_state
         self.model = "gpt-4o-mini"
-        self.history = history
+        self.history = list(reversed(history))
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
         try:
             langfuse = Langfuse(

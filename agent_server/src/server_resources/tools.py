@@ -507,7 +507,7 @@ async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -
             return f"No teammates found with name '{param.name}'"
         result = [f"Teammates named {param.name}:"]
         for t in teammates:
-            result.append(f"- {t['name']} {t['surname']} ({t['index']})")
+            result.append(f"- {t['name']} {t['surname']} -{t['index']}")
         return "\n".join(result)
     except Exception as e:
         return f"ERROR: {str(e)}"
