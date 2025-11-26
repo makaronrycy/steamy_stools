@@ -14,4 +14,25 @@ import os
 )
 async def example_resource(param: str) -> dict:
     # Implement the resource's functionality here
+<<<<<<< HEAD
     return {"message": f"Resource accessed with param: {param}"}
+=======
+    return {"message": f"Resource accessed with param: {param}"}
+
+@MCP_SERVER.resource(
+    uri='resource://database//schema//nodes',
+    description='Get the list of node types with their fields in the database',
+    mime_type='application/json'
+)
+async def get_node_types() -> dict:
+    logging.warning(f'[get_node_types] {datetime.now()} started')
+    connector = Neo4jRetriever(
+        uri=os.environ['NEO4J_URI'],
+        username=os.environ['NEO4J_USERNAME'],
+        password=os.environ['NEO4J_PASSWORD'],
+    )
+    schema = connector.get_node_types()
+    logging.warning(f'[get_node_types] {datetime.now()} finished')
+    return schema
+
+>>>>>>> 4d5321619283b8dc8093911e785eb84038240694

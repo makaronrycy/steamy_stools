@@ -60,11 +60,7 @@ class GetStudentCompletionStatusRequest(BaseModel):
     index: str = Field(..., description="Index studenta")
 
 class IdentifyTeammateByNameRequest(BaseModel):
-    grader_index: str = Field(..., description="Index studenta wyszukującego")
     name: str = Field(..., description="Imię do dopasowania (case-insensitive)")
-
-class IdentifyTeammateBySurnameRequest(BaseModel):
-    grader_index: str = Field(..., description="Index studenta wyszukującego")
     surname: str = Field(..., description="Nazwisko do dopasowania (case-insensitive)")
 
 
@@ -73,10 +69,6 @@ class IdentifyTeammateBySurnameRequest(BaseModel):
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 class SetSelfGradeRequest(BaseModel):
-    grading_person_index: str = Field(
-        ...,
-        description="Indeks osoby wystawiającej sobie ocenę"
-    )
     grade: float = Field(
         ...,
         description="Ocena w skali 2.0-5.0",
@@ -88,25 +80,21 @@ class SetSelfGradeRequest(BaseModel):
         description="Uzasadnienie samooceny"
     )
 class SetTeammateGradeRequest(BaseModel):
-    grading_person_index: str = Field(..., description="Index oceniającego")
     graded_person_index: str = Field(..., description="Index ocenianego")
     grade: float = Field(..., ge=2.0, le=5.0, description="Ocena 2.0–5.0")
     description: str = Field(..., description="Uzasadnienie oceny")
 
 class SetLeaderGradeRequest(BaseModel):
-    grading_person_index: str = Field(..., description="Index oceniającego")
     project_id: str = Field(..., description="ID projektu")
     grade: float = Field(..., ge=2.0, le=5.0, description="Ocena 2.0–5.0")
     description: str = Field(..., description="Uzasadnienie oceny")
 
 class SetProjectGradeRequest(BaseModel):
-    grading_person_index: str = Field(..., description="Index oceniającego")
     project_id: str = Field(..., description="ID projektu")
     grade: float = Field(..., ge=2.0, le=5.0, description="Ocena 2.0–5.0")
     description: str = Field(..., description="Uzasadnienie oceny")
 
 class SetProjectObjectivesGradeRequest(BaseModel):
-    grading_person_index: str = Field(..., description="Index oceniającego")
     project_id: str = Field(..., description="ID projektu")
     grade: float = Field(..., ge=2.0, le=5.0, description="Ocena 2.0–5.0")
     description: str = Field(..., description="Uzasadnienie oceny")
