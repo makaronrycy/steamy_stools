@@ -7,12 +7,8 @@ ENDPOINT = "/start_agent"
 HEADERS = {"Content-Type": "application/json"}
 
 def post(payload):
-<<<<<<< HEAD
-    conn = http.client.HTTPConnection(HOST, PORT)
-=======
     # use plain HTTP for a non-TLS local server
     conn = http.client.HTTPConnection(HOST, PORT,timeout=120)
->>>>>>> 4d5321619283b8dc8093911e785eb84038240694
     conn.request("POST", ENDPOINT, json.dumps(payload), HEADERS)
     res = conn.getresponse()
     data = res.read().decode("utf-8")
@@ -23,9 +19,6 @@ def post(payload):
         return {"raw": data}
 
 def main():
-<<<<<<< HEAD
-    init_payload = {"session_id": "test_user_1", "answer": ""}
-=======
     """
     Simplified test script - only sends user_id and answer.
     Server determines state automatically based on completion status.
@@ -48,7 +41,6 @@ def main():
         "question_target": question_target
     }
 
->>>>>>> 4d5321619283b8dc8093911e785eb84038240694
     resp = post(init_payload)
     print("=" * 60)
     print("Initial response:")
@@ -56,12 +48,8 @@ def main():
     print("=" * 60)
 
     question = resp.get("question", "")
-<<<<<<< HEAD
-    print("\nAgent question:\n", question)
-=======
     next_state = resp.get("next_state", "")
     current_state = resp.get("current_state", "")
->>>>>>> 4d5321619283b8dc8093911e785eb84038240694
 
     print(f"\n Current State: {current_state}")
     print(f"  Next State: {next_state}")
@@ -73,14 +61,6 @@ def main():
         if not answer or answer.lower() == 'exit':
             print("\n Exiting conversation.")
             break
-<<<<<<< HEAD
-        
-        follow_payload = {"session_id": "test_user_1", "answer": answer}
-        resp = post(follow_payload)
-        print("\nServer response:")
-        print(resp)
-        print("\nAgent:", resp.get("question", ""))
-=======
 
         # Simplified payload - only user_id and answer required
         follow_payload = {
@@ -99,7 +79,6 @@ def main():
         question = resp.get("question", "")
         next_state = resp.get("next_state", next_state)
         current_state = resp.get("current_state", current_state)
->>>>>>> 4d5321619283b8dc8093911e785eb84038240694
 
         print(f"\n Current State: {current_state}")
         print(f"  Next State: {next_state}")

@@ -1,103 +1,18 @@
 from .agent import AgentWorkflow
 from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
-<<<<<<< HEAD
 from sanic import Sanic, response, request
-from .conversation_flow import ConversationFlow
-import logging 
-=======
-from sanic import Sanic,response,request
 from .states import AVAILABLE_STATES
 from .utils import context_aware_filter
 from langfuse import Langfuse
 import json
 import os
+
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:10000")
->>>>>>> 4d5321619283b8dc8093911e785eb84038240694
 
 def get_app() -> Sanic:
-    app = Sanic("HotSeatsApp")
-    
-    # Przechowuj sesje rozmów
-    conversation_flows = {}
+    app = Sanic("AgentClientApp")
 
     @app.route("/start_agent", methods=["POST"])
-<<<<<<< HEAD
-    async def start_agent(req: request.Request):
-        data = req.json
-        
-        session_id = data.get("session_id", "default")
-        user_answer = data.get("answer", "")
-        
-        # Pobierz/stwórz ConversationFlow - WSPÓŁDZIELONY między requestami
-        if session_id in conversation_flows:
-            flow = conversation_flows[session_id]
-            logging.info(f"Loaded session {session_id}")
-            logging.info(f"Current state: {flow.to_dict()}")
-        else:
-            flow = ConversationFlow()
-            conversation_flows[session_id] = flow
-            logging.info(f"New session {session_id}")
-        
-        # Połącz z MCP
-        mcp_server = MCPServerStreamableHttp(
-            params=MCPServerStreamableHttpParams(url='http://localhost:7000/mcp')
-        )
-        await mcp_server.connect()
-        
-        # Uruchom workflow
-        workflow = AgentWorkflow(
-            user_answer=user_answer,
-            conversation_flow=flow,
-            mcp_server=mcp_server
-        )
-        
-        question_parts = []
-        context = None
-        
-        # Stream odpowiedzi
-        async for step in workflow.run():
-            if step["state"] == "ANSWERING":
-                question_parts.append(step["answer"])
-            elif step["state"] == "DONE":
-                context = step.get("context")
-                logging.info(f"Received DONE with context: {context}")
-        
-        await mcp_server.cleanup()
-        
-        full_question = ''.join(question_parts)
-        
-        # Użyj context z ConversationFlow
-        if not context:
-            context = flow.to_dict()
-            logging.info(f"Using flow.to_dict() as context: {context}")
-        
-        # Sprawdź czy zakończone (wszystkie oceny kompletne)
-        is_complete = (
-            context.get("verified") and
-            context.get("has_self_grade") and
-            len(context.get("graded_teammates", [])) > 0
-        )
-        
-        res = {
-            "status": "done" if is_complete else "in_progress",
-            "question": full_question,
-            "session_id": session_id,
-            "context": context,
-            "is_complete": is_complete,
-        }
-        # ZAPISZ flow do słownika PRZED returnem!
-        conversation_flows[session_id] = flow
-        logging.info(f"Saved session {session_id} state: {flow.to_dict()}")
-        return response.json(res, ensure_ascii=False)
-    
-    @app.route("/reset_session", methods=["POST"])
-    async def reset_session(req: request.Request):
-        """Reset sesji"""
-        session_id = req.json.get("session_id", "default")
-        if session_id in conversation_flows:
-            del conversation_flows[session_id]
-        return response.json({"status": "reset"})
-=======
     async def start_agent(request: request.Request):
         try:
             data = request.json
@@ -119,11 +34,10 @@ def get_app() -> Sanic:
                         url=f'{MCP_SERVER_URL}/mcp',
                         headers={
                             "user_id": str(user_id),
-                        },     
+                        },
                     ),
                     client_session_timeout_seconds=60.0,
                     tool_filter=context_aware_filter
-
                 )
                 print(f"MCP server object created, attempting connection...")
                 await mcp_server.connect()
@@ -142,27 +56,26 @@ def get_app() -> Sanic:
 
             print(f"State tool result: {state_data}")
             # Use current_state_in_session (what's in DB) not next_state (what should be next)
-            current_state_key = state_dict.get("current_state_in_session", "initial")
+            session_current_state_key = state_dict.get("current_state_in_session", "initial")
             session_last_state = state_dict.get("last_state", None)
-            print(f"Current state from session: {current_state_key}")
+            print(f"Current state from session: {session_current_state_key}")
             print(f"Last state from session: {session_last_state}")
             print(f"Next required state (for reference): {state_dict.get('next_state', 'N/A')}")
 
-            # Get state configuration
-            print(f"Getting state configuration for: {current_state_key}")
-            current_state = AVAILABLE_STATES.get(current_state_key, AVAILABLE_STATES["initial"])
+            # Get state configuration – to jest stan, W KTÓRYM działa agent w tej turze
+            print(f"Getting state configuration for: {session_current_state_key}")
+            current_state = AVAILABLE_STATES.get(session_current_state_key, AVAILABLE_STATES["initial"])
 
-            # For backward compatibility, handle last_state if provided
-            # Priority: 1) client-provided, 2) session last_state, 3) None
+            # last_state tylko jako kontekst – NIE nadpisujemy nim current_state
             last_state_key = data.get("last_state", None) or session_last_state
             last_state = AVAILABLE_STATES.get(last_state_key, None) if last_state_key else None
 
-
-            #get history of conversation from server
+            # get history of conversation from server
             history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
             history_data = history_tool_result.model_dump()
             history_dict = json.loads(history_data["content"][0]["text"])
             print(f"Retrieved conversation history: {history_dict}")
+
             # Run agent workflow
             print("Starting agent workflow...")
             agent_workflow = AgentWorkflow(
@@ -176,30 +89,37 @@ def get_app() -> Sanic:
             )
 
             question = []
-            next_state_key = current_state_key  # Default: stay in same state if NEXT_QUESTION not reached
-            current_state_key = last_state_key
+
+            # ---------------- KLUCZOWE ZARZĄDZANIE STANAMI ----------------
+            # Stan, z którego pochodzi pytanie (to chcemy pokazać jako current_state)
+            question_state_key = current_state.name
+            # Domyślnie: jeśli nie będzie przejścia stanu, to next_state = ten sam
+            session_state_after = question_state_key
+            next_state_key = question_state_key
+            # ---------------------------------------------------------------
+
             async for step in agent_workflow.run():
                 if step["state"] == "ANSWERING":
                     question.append(step.get("answer", ""))
+
                 if step["state"] == "NEXT_QUESTION":
-                    # Question asked successfully
-                    # 1. Determine next state from server via MCP tool
-                    # 2. Update session to move current_state -> last_state and set next as current
-                    current_state_key = current_state.name
+                    # Pytanie zostało zadane na stanie current_state
+                    question_state_key = current_state.name
 
                     try:
-                        # First, determine what the next state should be
-                        print(f"Determining next state after completing {current_state_key}")
+                        # 1. Ustalamy, co powinno być następnym stanem
+                        print(f"Determining next state after completing {question_state_key}")
                         next_state_result = await mcp_server.session.call_tool("get_next_required_state_tool")
                         next_state_data = next_state_result.model_dump()
                         next_state_dict = json.loads(next_state_data["content"][0]["text"])
-                        # Use 'next_state' field which indicates what should be next based on completion
-                        next_state_key = next_state_dict.get("next_state", current_state_key)
+
+                        # To jest logiczny "next_state" z punktu widzenia FSM
+                        next_state_key = next_state_dict.get("next_state", question_state_key)
                         print(f"Next state determined: {next_state_key}")
                         print(f"Reason: {next_state_dict.get('reason', 'N/A')}")
 
-                        # Now update session: current state becomes last_state, next_state becomes current
-                        print(f"Updating session state: {current_state_key} -> last_state, {next_state_key} -> current_state")
+                        # 2. Aktualizujemy sesję w DB: question_state -> last_state, next_state -> current_state
+                        print(f"Updating session state: {question_state_key} -> last_state, {next_state_key} -> current_state")
                         update_result = await mcp_server.session.call_tool(
                             "update_session_state_tool",
                             arguments={"new_state": next_state_key}
@@ -207,19 +127,25 @@ def get_app() -> Sanic:
                         update_data = update_result.model_dump()
                         update_dict = json.loads(update_data["content"][0]["text"])
                         if update_dict.get("success"):
-                            print(f"Session updated successfully: last_state={update_dict.get('last_state')}, current_state={update_dict.get('new_state')}")
-                            # Update current_state_key to reflect the new state
-                            current_state_key = next_state_key
+                            session_state_after = next_state_key
+                            print(
+                                f"Session updated successfully: "
+                                f"last_state={update_dict.get('last_state')}, "
+                                f"current_state={update_dict.get('new_state')}"
+                            )
                         else:
+                            # Jeśli update się nie udał – zostajemy przy stanie, z którego padło pytanie
+                            session_state_after = question_state_key
                             print(f"Warning: Session update returned error: {update_dict.get('error')}")
-                            #This means there's no data in DB, return error
-                            raise Exception(f"Session state update failed, db probably empty: {update_dict.get('error')}")
+                            raise Exception(
+                                f"Session state update failed, db probably empty: {update_dict.get('error')}"
+                            )
 
                     except Exception as e:
+                        # W razie błędu nie ruszamy session_state_after (zostaje question_state_key)
                         print(f"Error in state transition: {e}")
                         import traceback
                         traceback.print_exc()
-
 
             # Save conversation messages to history
             try:
@@ -234,7 +160,8 @@ def get_app() -> Sanic:
                                 "session_id": session_id,
                                 "role": "user",
                                 "content": user_anwser,
-                                "state_at_time": current_state_key
+                                # stan, w którym użytkownik odpowiadał na to pytanie
+                                "state_at_time": question_state_key,
                             }
                         )
                         print(f"User message saved")
@@ -248,7 +175,8 @@ def get_app() -> Sanic:
                                 "session_id": session_id,
                                 "role": "assistant",
                                 "content": agent_question,
-                                "state_at_time": current_state_key
+                                # to samo: pytanie należy do question_state
+                                "state_at_time": question_state_key,
                             }
                         )
                         print(f"Agent message saved")
@@ -262,11 +190,14 @@ def get_app() -> Sanic:
 
             await mcp_server.cleanup()
 
+            # ---------------- ZWROTKA DO KLIENTA ----------------
+            # current_state -> stan, z którego jest to pytanie
+            # next_state    -> stan, który jest ustawiony w sesji PO tej turze
             res = {
                 "status": "completed",
                 "question": ''.join(question),
-                "next_state": next_state_key,
-                "current_state": current_state_key
+                "current_state": question_state_key,
+                "next_state": session_state_after,
             }
             print(f"Returning response: {res}")
             return response.json(res, ensure_ascii=False)
@@ -280,6 +211,5 @@ def get_app() -> Sanic:
                 "error": str(e),
                 "traceback": traceback.format_exc()
             }, status=500)
->>>>>>> 4d5321619283b8dc8093911e785eb84038240694
 
     return app

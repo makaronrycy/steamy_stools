@@ -1,6 +1,6 @@
 from .. import MCP_SERVER
 # WYŁĄCZONE - nie używamy Neo4j póki co
-# from .. import Neo4jRetriever
+from ..neo4j_retriever import Neo4jRetriever
 import logging
 from datetime import datetime
 import os
@@ -14,9 +14,6 @@ import os
 )
 async def example_resource(param: str) -> dict:
     # Implement the resource's functionality here
-<<<<<<< HEAD
-    return {"message": f"Resource accessed with param: {param}"}
-=======
     return {"message": f"Resource accessed with param: {param}"}
 
 @MCP_SERVER.resource(
@@ -35,4 +32,3 @@ async def get_node_types() -> dict:
     logging.warning(f'[get_node_types] {datetime.now()} finished')
     return schema
 
->>>>>>> 4d5321619283b8dc8093911e785eb84038240694

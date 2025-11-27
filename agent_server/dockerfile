@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Poetry
-RUN pip install --no-cache-dir poetry
+# Install Poetry (pin to version that supports --no-dev)
+RUN pip install --no-cache-dir "poetry==1.4.2"
 
 # Copy dependency files
 COPY pyproject.toml poetry.lock* ./
