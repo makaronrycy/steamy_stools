@@ -1175,6 +1175,42 @@ class Neo4jRetriever:
             )
             return result.single()
 
+    def set_assumptions_assessment(
+        self, 
+        grading_person_index: str,
+        graded_person_index: str,
+        description: str,
+    ):
+        """
+        Save assumptions assessment (no grade, only explanation)
+        Student evaluates how another student fulfills the project assumptions
+        
+        Args:
+            grading_person_index: Index number of the person grading
+            graded_person_index: Index number of the person being assessed
+            description: Assessment explanation (required, no numeric grade)
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $grading_person_index}),
+                    (graded:Student {index: $graded_person_index})
+                CREATE (grader)-[:answered]->(a:Answer {
+                    question_type: "assumptions_assessment",
+                    explanation: $description
+                })-[:refers_to]->(graded)
+                RETURN grader.name as grader_name, 
+                    grader.surname as grader_surname,
+                    graded.name as graded_name,
+                    graded.surname as graded_surname,
+                    a.question_type,
+                    a.explanation
+            """,
+                grading_person_index=grading_person_index,
+                graded_person_index=graded_person_index,
+                description=description
+            )
+            return result.single()
+
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL DATABASE-------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1251,6 +1287,13 @@ class Neo4jRetriever:
                             grading_person_index=grader_id,
                             project_id=project_id,
                             grade=grade,
+                            description=explanation
+                        )
+
+                    elif grade_type == "assumptions_assessment" and graded_id:
+                        self.set_assumptions_assessment(
+                            grading_person_index=grader_id,
+                            graded_person_index=graded_id,
                             description=explanation
                         )
 
