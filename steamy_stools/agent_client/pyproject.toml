@@ -1,0 +1,26 @@
+[project]
+name = "agent_client"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Maurycy Szmuc", email = "s193194@student.pg.edu.pl"},
+]
+readme = "./README.md"
+requires-python = ">=3.12, <4.0"
+dependencies = [
+    "fastmcp",
+    'openai-agents',
+    'tiktoken',
+    'sanic',
+    'langfuse',
+    'pydantic-ai[logfire]',
+    'nest_asyncio',
+    "neo4j",
+    "sanic-ext"
+
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

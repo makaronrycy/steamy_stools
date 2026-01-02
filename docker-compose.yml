@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Backend API + WebSocket Gateway
+  backend:
+    build: 
+      context: ./backend
+    container_name: zsd-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+      - SONAR_HOST_URL=http://sonarqube:9000
+      - SONAR_API_URL=http://sonarqube:9000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - SONAR_TOKEN=${SONAR_TOKEN}
+      # Overrides for Docker-in-Docker (Sibling containers)
+      - WORKSPACE_DIR=/app/workspace
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Allow spawning sibling containers (SonarScanner)
+      - ./backend/workspace:/app/workspace        # Persist cloned repos
+    depends_on:
+      - mongo
+      - sonarqube
+    networks:
+      - zsd-network
+
+  # Frontend Web App
+  frontend:
+    build:
+      context: ./frontend
+    container_name: zsd-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000 
+    networks:
+      - zsd-network
+
+  # Database for analysis results
+  mongo:
+    image: mongo:latest
+    container_name: zsd-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - zsd-network
+
+  # SonarQube for code analysis
+  sonarqube:
+    image: sonarqube:community
+    container_name: zsd-sonarqube
+    ports:
+      - "9000:9000"
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - sonar-data:/opt/sonarqube/data
+      - sonar-extensions:/opt/sonarqube/extensions
+      - sonar-logs:/opt/sonarqube/logs
+    networks:
+      - zsd-network
+
+volumes:
+  mongo-data:
+  sonar-data:
+  sonar-extensions:
+  sonar-logs:
+
+networks:
+  zsd-network:
+    driver: bridge
