@@ -28,17 +28,30 @@ class Neo4jRetriever:
         with self.driver.session() as session:
             result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
             return [{"name": record["name"], "surname": record["surname"], "index": record["index"]} for record in result]
+    
+    def get_student_project(self, index: str):
+        """Get the project that student belongs to"""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                RETURN project.id AS project_id, project.name AS project_name
+            """, index=index)
+            record = result.single()
+            if record:
+                return {"project_id": record["project_id"], "project_name": record["project_name"]}
+            return None
+
     def get_leader_of_student(self, index: str):
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
                 MATCH (leader:Student)-[r:belongs_to]->(project)
                 WHERE r.role = "leader"
-                RETURN leader.name AS name, leader.surname AS surname, leader.index AS index
+                RETURN leader.name AS name, leader.surname AS surname, leader.index AS index, project.id AS project_id
             """, index=index)
             record = result.single()
             if record:
-                return {"name": record["name"], "surname": record["surname"], "index": record["index"]}
+                return {"name": record["name"], "surname": record["surname"], "index": record["index"], "project_id": record["project_id"]}
             return None
     def get_project_grades(self, project_id: str):
         """
@@ -554,13 +567,45 @@ class Neo4jRetriever:
                 "is_complete": has_grade and has_explanation,
                 "project_id": proj_id
             }
+
+            # 6. MASTERS INTENT (open answer)
+            masters_result = session.run("""
+                MATCH (student:Student {index: $index})
+                OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
+                WHERE answer.question_type = "masters_intent"
+                RETURN answer.explanation as explanation
+            """, index=index)
+            masters_record = masters_result.single()
+            masters_expl = masters_record["explanation"] if masters_record else None
+            masters_has_answer = masters_expl is not None and str(masters_expl).strip() != ""
+            result["masters_intent"] = {
+                "has_answer": masters_has_answer,
+                "is_complete": masters_has_answer,
+            }
+
+            # 7. STUDY PROGRAM FEEDBACK (open answer)
+            feedback_result = session.run("""
+                MATCH (student:Student {index: $index})
+                OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
+                WHERE answer.question_type = "study_program_feedback"
+                RETURN answer.explanation as explanation
+            """, index=index)
+            feedback_record = feedback_result.single()
+            feedback_expl = feedback_record["explanation"] if feedback_record else None
+            feedback_has_answer = feedback_expl is not None and str(feedback_expl).strip() != ""
+            result["study_program_feedback"] = {
+                "has_answer": feedback_has_answer,
+                "is_complete": feedback_has_answer,
+            }
             
             result["all_complete"] = (
                 result["self_assessment"]["is_complete"] and
                 result["teammate_assessments"]["is_complete"] and
                 result["project_assessments"]["is_complete"] and
                 result["leadership_assessment"]["is_complete"] and
-                result["objectives_assessment"]["is_complete"]
+                result["objectives_assessment"]["is_complete"] and
+                result["masters_intent"]["is_complete"] and
+                result["study_program_feedback"]["is_complete"]
             )
             
             return result
@@ -943,7 +988,7 @@ class Neo4jRetriever:
             is_user_leader = self.is_leader(student_index)
             if not is_user_leader:  # Only non-leaders evaluate leadership
                 return {
-                    "next_state": "evaluate_leadership",
+                    "next_state": "evaluate_leader_grade",
                     "reason": "leadership_assessment_incomplete",
                     "details": {
                         "leader_index": status["leadership_assessment"]["leader_index"]
@@ -958,6 +1003,22 @@ class Neo4jRetriever:
                 "details": {
                     "project_id": status["objectives_assessment"]["project_id"]
                 }
+            }
+
+        # Priority 6: Masters intent (open answer)
+        if not status.get("masters_intent", {}).get("is_complete", False):
+            return {
+                "next_state": "masters_intent",
+                "reason": "masters_intent_incomplete",
+                "details": {}
+            }
+
+        # Priority 7: Study program feedback (open answer)
+        if not status.get("study_program_feedback", {}).get("is_complete", False):
+            return {
+                "next_state": "study_program_feedback",
+                "reason": "study_program_feedback_incomplete",
+                "details": {}
             }
 
         # All complete
@@ -1173,6 +1234,19 @@ class Neo4jRetriever:
                 grade=grade,
                 description=description
             )
+            return result.single()
+
+    def set_open_answer(self, student_index: str, question_type: str, answer: str):
+        """Save a free-form interview answer linked to the student. Uses MERGE to prevent duplicates."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})
+                MERGE (student)-[:answered]->(a:Answer {question_type: $question_type})-[:refers_to]->(student)
+                ON CREATE SET a.grade = null, a.explanation = $answer
+                ON MATCH SET a.explanation = $answer
+                RETURN a.question_type as question_type,
+                       a.explanation as explanation
+            """, student_index=student_index, question_type=question_type, answer=answer)
             return result.single()
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from .models import (
     GetStudentCompletionStatusRequest, IdentifyTeammateByNameRequest,
     SetSelfGradeRequest, SetTeammateGradeRequest, SetLeaderGradeRequest,
     SetProjectGradeRequest, SetProjectObjectivesGradeRequest,
+    SetOpenAnswerRequest,
 )
 from starlette.requests import Request
 from fastmcp.server.dependencies import get_http_request
@@ -229,7 +230,7 @@ async def has_graded_all_projects_tool() -> str:
 
 @MCP_SERVER.tool(
     name="get_leader_info_tool",
-    description="Zwraca indeks lidera projektu użytkownika.",
+    description="Zwraca indeks lidera projektu użytkownika oraz project_id potrzebny do zapisania oceny.",
     tags=set(['retrieval', 'role']),
 )
 async def get_leader_info_tool() -> str:
@@ -243,11 +244,12 @@ async def get_leader_info_tool() -> str:
         leader_index = leader_data.get("index") if leader_data else None
         leader_name = leader_data.get("name") if leader_data else None
         leader_surname = leader_data.get("surname") if leader_data else None
+        project_id = leader_data.get("project_id") if leader_data else None
 
         retriever.close()
         if not leader_index:
             return f"No leader found for user {user_index}"
-        return f"Leader of user {user_index} is {leader_index}, {leader_name} {leader_surname}"
+        return f"Leader of user {user_index} is {leader_index}, {leader_name} {leader_surname}. Project ID: {project_id} (użyj tego project_id przy wywołaniu set_leader_grade_tool)"
     except Exception as e:
         return f"ERROR: {str(e)}"
 
@@ -599,7 +601,7 @@ async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
 
 @MCP_SERVER.tool(
     name="set_project_objectives_grade_tool",
-    description="Zapisuje ocenę celów.",
+    description="Zapisuje ocenę celów projektu użytkownika (automatycznie pobiera project_id).",
     tags=set(['grading']),
 )
 async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequest) -> str:
@@ -609,13 +611,71 @@ async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequ
         if not user_index:
             return "ERROR: 'user_id' header not found"
         retriever = Neo4jRetriever()
+        
+        # Auto-fetch project_id from user's project
+        user_project = retriever.get_student_project(user_index)
+        if not user_project:
+            retriever.close()
+            return f"ERROR: No project found for user {user_index}"
+        project_id = user_project.get("project_id")
+        
         retriever.set_project_objectives_grade(
             grading_person_index=user_index,
-            project_id=param.project_id,
+            project_id=project_id,
             grade=param.grade,
             description=param.description
         )
         retriever.close()
-        return f"SUCCESS: objectives of project {param.project_id} graded {param.grade} by {user_index}"
+        return f"SUCCESS: objectives of project {project_id} graded {param.grade} by {user_index}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+
+
+@MCP_SERVER.tool(
+    name="set_masters_intent_tool",
+    description="Zapisuje odpowiedź na pytanie o pozostanie na magisterce.",
+    tags=set(['grading', 'interview', 'open_answer']),
+)
+async def set_masters_intent_tool(param: SetOpenAnswerRequest) -> str:
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
+
+        retriever = Neo4jRetriever()
+        data = param.model_dump()
+        retriever.set_open_answer(
+            student_index=user_index,
+            question_type="masters_intent",
+            answer=data["answer"],
+        )
+        retriever.close()
+        return f"SUCCESS: masters_intent saved for student {user_index}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+
+
+@MCP_SERVER.tool(
+    name="set_study_program_feedback_tool",
+    description="Zapisuje uwagi do kierunku studiów.",
+    tags=set(['grading', 'interview', 'open_answer']),
+)
+async def set_study_program_feedback_tool(param: SetOpenAnswerRequest) -> str:
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
+
+        retriever = Neo4jRetriever()
+        data = param.model_dump()
+        retriever.set_open_answer(
+            student_index=user_index,
+            question_type="study_program_feedback",
+            answer=data["answer"],
+        )
+        retriever.close()
+        return f"SUCCESS: study_program_feedback saved for student {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"

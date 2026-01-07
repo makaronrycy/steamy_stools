@@ -13,7 +13,7 @@ AVAILABLE_STATES = {
     "initial": State(
         name="initial",
         description="The initial state of the agent workflow.",
-        allowed_tools=[],
+        allowed_tools=["get_user_info_tool"],
         prompt_name="initial_prompt",
         verification_prompt_name="initial_verification_prompt",
         question="Pytanie o imię i nazwisko użytkownika.",
@@ -32,7 +32,7 @@ AVAILABLE_STATES = {
         allowed_tools=["get_random_ungraded_member_tool","set_teammate_grade_tool","identify_teammate_by_name_tool"],
         prompt_name="question_prompt",
         verification_prompt_name="teammate_evaluation_verification_prompt",
-        tool_instructions="Jeśli pytanie jest o członka zespołu, wylosuj nieocenionego członka zespołu używając get_random_ungraded_member_tool. Następnie wykorzystaj jego imię i nazwisko w dalszej rozmowie. Jeśli już jest w historii rozmowy, nie musisz ponownie losować, chyba że został oceniony. Nie wspominaj o losowaniu w rozmowie.",
+        tool_instructions="NAJPIERW wywołaj get_random_ungraded_member_tool aby sprawdzić kto jest do oceny. NIE WYMYŚLAJ IMION! Używaj TYLKO imion zwróconych przez narzędzie. Jeśli wszyscy ocenieni - przejdź dalej.",
         question="Jaką ocenę wystawiłbyś swojemu koledze z zespołu i dlaczego?",
     ),
     "evaluate_leader_grade":State(
@@ -52,13 +52,29 @@ AVAILABLE_STATES = {
         verification_prompt_name="objectives_evaluation_verification_prompt",
         question="Czy cele projektu zostały osiągnięte? Jaką ocenę byś wystawił i dlaczego?",
     ),
+    "masters_intent": State(
+        name="masters_intent",
+        description="Asks the user whether they plan to continue to master's studies.",
+        allowed_tools=["set_masters_intent_tool"],
+        prompt_name="question_prompt",
+        verification_prompt_name="masters_intent_verification_prompt",
+        question="Czy zamierza pan/pani zostac na magisterke ?",
+    ),
+    "study_program_feedback": State(
+        name="study_program_feedback",
+        description="Asks the user for feedback on the study program.",
+        allowed_tools=["set_study_program_feedback_tool"],
+        prompt_name="question_prompt",
+        verification_prompt_name="study_program_feedback_verification_prompt",
+        question="Jakie uwagi do kierunku studiow?",
+    ),
     "evaluate_project_grade":State(
         name="evaluate_project_grade",
         description="Asks the user to evaluate the project grade.",
         allowed_tools=["get_ungraded_projects_tool","set_project_grade_tool"],
         prompt_name="question_prompt",
         verification_prompt_name="project_evaluation_verification_prompt",
-        tool_instructions="Jeśli pytanie jest o ocene projektu, wykorzystaj get_ungraded_project_tool aby uzyskać nazwę nieocenionych projektów. Następnie wybierz JEDEN z nich i zapytaj się o ocenienie go. Nie wspominaj o użyciu narzędzia w rozmowie.",
+        tool_instructions="NAJPIERW wywołaj get_ungraded_projects_tool aby uzyskać listę nieocenionych projektów z ich project_id. Następnie zapytaj użytkownika o ocenę JEDNEGO projektu. Nie wymyślaj nazw projektów - używaj TYLKO nazw z narzędzia!",
         question="Jaką ocenę wystawiłbyś projektowi i dlaczego?",
     ),
     "done": State(

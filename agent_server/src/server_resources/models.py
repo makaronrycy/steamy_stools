@@ -95,6 +95,13 @@ class SetProjectGradeRequest(BaseModel):
     description: str = Field(..., description="Uzasadnienie oceny")
 
 class SetProjectObjectivesGradeRequest(BaseModel):
-    project_id: str = Field(..., description="ID projektu")
     grade: float = Field(..., ge=2.0, le=5.0, description="Ocena 2.0–5.0")
     description: str = Field(..., description="Uzasadnienie oceny")
+
+
+class SetOpenAnswerRequest(BaseModel):
+    answer: str = Field(
+        ..., 
+        min_length=20,
+        description="Odpowiedź użytkownika z uzasadnieniem (min. 20 znaków)"
+    )
