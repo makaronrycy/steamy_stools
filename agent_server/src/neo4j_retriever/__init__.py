@@ -237,42 +237,31 @@ class Neo4jRetriever:
             """, index=index)
             
             return [{"index": record["ungraded_index"], "name": record["name"], "surname": record["surname"]} for record in result]
+        
     def get_random_ungraded_member(self, index: str):
         """
-        Get a random ungraded team member
-        
-        Args:
-            index: Grader index
-            
-        Returns:
-            Dictionary with index, name, surname of a random ungraded member or None
+        Deterministic: returns the next ungraded teammate ordered by teammate.index
+        (we keep the name for compatibility with existing tools/prompts).
         """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (grader:Student {index: $index})-[:belongs_to]->(project:Project)
                 MATCH (teammate:Student)-[:belongs_to]->(project)
                 WHERE teammate.index <> $index
-                WITH grader, teammate
-                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(teammate)
-                WHERE answer.question_type = "teammate_assessment"
-                WITH teammate, answer
-                WHERE answer IS NULL
-                RETURN 
-                    teammate.index as ungraded_index,
-                    teammate.name as name,
-                    teammate.surname as surname
-                ORDER BY rand()
+                AND NOT EXISTS {
+                    MATCH (grader)-[:answered]->(a:Answer)-[:refers_to]->(teammate)
+                    WHERE a.question_type = "teammate_assessment"
+                }
+                RETURN teammate.index as index, teammate.name as name, teammate.surname as surname
+                ORDER BY teammate.index
                 LIMIT 1
             """, index=index)
-            
+
             record = result.single()
-            if record:
-                return {
-                    "index": record["ungraded_index"],
-                    "name": record["name"],
-                    "surname": record["surname"]
-                }
-            return None
+            if not record:
+                return None
+            return {"index": record["index"], "name": record["name"], "surname": record["surname"]}
+
     def has_graded_all_projects(self, index: str):
         """
         Check if user has graded all projects
@@ -696,18 +685,10 @@ class Neo4jRetriever:
     def create_conversation_session(self, student_index: str):
         """
         Create new conversation session for a student
-
-        Args:
-            student_index: Student index
-
-        Returns:
-            dict: Session information
         """
         import uuid
-
-        session_id = str(uuid.uuid4())
-
         with self.driver.session() as session:
+            session_id = str(uuid.uuid4())
             result = session.run("""
                 MATCH (student:Student {index: $student_index})
                 CREATE (cs:ConversationSession {
@@ -715,6 +696,7 @@ class Neo4jRetriever:
                     student_index: $student_index,
                     current_state: "initial",
                     last_state: null,
+                    pending_target_json: null,
                     started_at: datetime(),
                     last_updated: datetime(),
                     is_active: true,
@@ -722,14 +704,15 @@ class Neo4jRetriever:
                 })
                 CREATE (student)-[:HAS_SESSION]->(cs)
                 RETURN cs.session_id as session_id,
-                       cs.student_index as student_index,
-                       cs.current_state as current_state,
-                       cs.last_state as last_state,
-                       cs.started_at as started_at,
-                       cs.last_updated as last_updated,
-                       cs.is_active as is_active,
-                       cs.completed as completed
-            """, session_id=session_id, student_index=student_index)
+                    cs.student_index as student_index,
+                    cs.current_state as current_state,
+                    cs.last_state as last_state,
+                    cs.pending_target_json as pending_target_json,
+                    cs.started_at as started_at,
+                    cs.last_updated as last_updated,
+                    cs.is_active as is_active,
+                    cs.completed as completed
+            """, student_index=student_index, session_id=session_id)
 
             record = result.single()
             if record:
@@ -738,35 +721,32 @@ class Neo4jRetriever:
                     "student_index": record["student_index"],
                     "current_state": record["current_state"],
                     "last_state": record["last_state"],
+                    "pending_target_json": record["pending_target_json"],
                     "started_at": record["started_at"],
                     "last_updated": record["last_updated"],
                     "is_active": record["is_active"],
-                    "completed": record["completed"]
+                    "completed": record["completed"],
                 }
-            return None
+        return None
+
 
     def get_active_session(self, student_index: str):
         """
         Get active conversation session for a student
-
-        Args:
-            student_index: Student index
-
-        Returns:
-            dict or None: Session information if active session exists
         """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:HAS_SESSION]->(cs:ConversationSession)
                 WHERE cs.is_active = true AND cs.completed = false
                 RETURN cs.session_id as session_id,
-                       cs.student_index as student_index,
-                       cs.current_state as current_state,
-                       cs.last_state as last_state,
-                       cs.started_at as started_at,
-                       cs.last_updated as last_updated,
-                       cs.is_active as is_active,
-                       cs.completed as completed
+                    cs.student_index as student_index,
+                    cs.current_state as current_state,
+                    cs.last_state as last_state,
+                    cs.pending_target_json as pending_target_json,
+                    cs.started_at as started_at,
+                    cs.last_updated as last_updated,
+                    cs.is_active as is_active,
+                    cs.completed as completed
                 ORDER BY cs.last_updated DESC
                 LIMIT 1
             """, student_index=student_index)
@@ -778,43 +758,31 @@ class Neo4jRetriever:
                     "student_index": record["student_index"],
                     "current_state": record["current_state"],
                     "last_state": record["last_state"],
+                    "pending_target_json": record["pending_target_json"],
                     "started_at": record["started_at"],
                     "last_updated": record["last_updated"],
                     "is_active": record["is_active"],
-                    "completed": record["completed"]
+                    "completed": record["completed"],
                 }
-            return None
+        return None
 
-    def update_session_state(self, session_id: str, new_state: str, previous_state = None):
+
+    def update_session_state(self, session_id: str, new_state: str, pending_target_json: str | None = None):
         """
-        Update current state of conversation session
-
-        Args:
-            session_id: Session ID
-            new_state: New state name
-            previous_state: Optional - the state we're transitioning from (becomes last_state)
-
-        Returns:
-            bool: True if update successful
+        Atomically: last_state <- current_state, current_state <- new_state, pending_target_json <- pending_target_json
         """
         with self.driver.session() as session:
-            if previous_state is not None:
-                result = session.run("""
-                    MATCH (cs:ConversationSession {session_id: $session_id})
-                    SET cs.last_state = cs.current_state,
-                        cs.current_state = $new_state,
-                        cs.last_updated = datetime()
-                    RETURN cs.session_id as session_id
-                """, session_id=session_id, new_state=new_state)
-            else:
-                result = session.run("""
-                    MATCH (cs:ConversationSession {session_id: $session_id})
-                    SET cs.current_state = $new_state,
-                        cs.last_updated = datetime()
-                    RETURN cs.session_id as session_id
-                """, session_id=session_id, new_state=new_state)
+            result = session.run("""
+                MATCH (cs:ConversationSession {session_id: $session_id})
+                SET cs.last_state = cs.current_state,
+                    cs.current_state = $new_state,
+                    cs.pending_target_json = $pending_target_json,
+                    cs.last_updated = datetime()
+                RETURN cs.session_id as session_id
+            """, session_id=session_id, new_state=new_state, pending_target_json=pending_target_json)
 
             return result.single() is not None
+
 
     def save_conversation_message(self, session_id: str, role: str, content: str, state_at_time: str):
         """

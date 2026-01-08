@@ -1,4 +1,5 @@
 from pydantic import BaseModel,Field
+from typing import Optional
 
 class Message(BaseModel):
     content: str = Field(
@@ -60,8 +61,8 @@ class GetStudentCompletionStatusRequest(BaseModel):
     index: str = Field(..., description="Index studenta")
 
 class IdentifyTeammateByNameRequest(BaseModel):
-    name: str = Field(..., description="Imię do dopasowania (case-insensitive)")
-    surname: str = Field(..., description="Nazwisko do dopasowania (case-insensitive)")
+    name: str = Field(..., description="Imię (case-insensitive)")
+    surname: Optional[str] = Field(None, description="Nazwisko (opcjonalne, case-insensitive)")
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

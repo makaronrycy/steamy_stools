@@ -12,6 +12,7 @@ from .models import (
 from starlette.requests import Request
 from fastmcp.server.dependencies import get_http_request
 from ..neo4j_retriever import Neo4jRetriever
+import json
 
 # 🔥 MOCKUP DATABASE - WSZYSTKO W PAMIĘCI
 MOCK_STUDENTS = {
@@ -144,18 +145,28 @@ async def get_user_info_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-            return "ERROR: 'user_index' header not found"
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
         info = retriever.get_user_info(index=user_index)
         retriever.close()
+
         if not info:
-            return f"No user found for index {user_index}"
-        return (
-            f"User {user_index}: {info['name']} {info['surname']}\n"
-            f"GitHub: {info['github']}\n"
-            f"Project: {info['project_id']} ({info['project_name']})"
-        )
+            return json.dumps({"error": f"No user found for index {user_index}"}, ensure_ascii=False)
+
+        
+        payload = {
+            "index": user_index,
+            "name": info.get("name"),
+            "surname": info.get("surname"),
+            "github": info.get("github"),
+            "project_id": info.get("project_id"),
+            "project_name": info.get("project_name"),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 
 @MCP_SERVER.tool(
@@ -190,9 +201,10 @@ async def get_ungraded_members_tool() -> str:
         return f"Ungraded teammates for {user_index}: {lst}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+    
 @MCP_SERVER.tool(
     name="get_random_ungraded_member_tool",
-    description="Zwraca losowego nieocenionego kolegę z zespołu.",
+    description="Zwraca (deterministycznie) kolejnego nieocenionego członka zespołu.",
     tags=set(['retrieval', 'progress']),
 )
 async def get_random_ungraded_member_tool() -> str:
@@ -200,15 +212,18 @@ async def get_random_ungraded_member_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-            return "ERROR: 'user_index' header not found"
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
         retriever = Neo4jRetriever()
         member = retriever.get_random_ungraded_member(index=user_index)
         retriever.close()
-        if not member:
-            return f"All teammates have been graded by {user_index}"
-        return f"Random ungraded teammate for {user_index}: {member}"
+
+        # Zwracamy JSON: dict albo null
+        return json.dumps(member, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 @MCP_SERVER.tool(
     name="has_graded_all_projects_tool",
@@ -230,7 +245,7 @@ async def has_graded_all_projects_tool() -> str:
 
 @MCP_SERVER.tool(
     name="get_leader_info_tool",
-    description="Zwraca indeks lidera projektu użytkownika oraz project_id potrzebny do zapisania oceny.",
+    description="Zwraca dane lidera projektu użytkownika oraz project_id potrzebny do zapisania oceny.",
     tags=set(['retrieval', 'role']),
 )
 async def get_leader_info_tool() -> str:
@@ -238,24 +253,21 @@ async def get_leader_info_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-            return "ERROR: 'user_index' header not found"
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
         retriever = Neo4jRetriever()
         leader_data = retriever.get_leader_of_student(index=user_index)
-        leader_index = leader_data.get("index") if leader_data else None
-        leader_name = leader_data.get("name") if leader_data else None
-        leader_surname = leader_data.get("surname") if leader_data else None
-        project_id = leader_data.get("project_id") if leader_data else None
-
         retriever.close()
-        if not leader_index:
-            return f"No leader found for user {user_index}"
-        return f"Leader of user {user_index} is {leader_index}, {leader_name} {leader_surname}. Project ID: {project_id} (użyj tego project_id przy wywołaniu set_leader_grade_tool)"
+
+        return json.dumps(leader_data, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 @MCP_SERVER.tool(
     name="get_ungraded_projects_tool",
-    description="Zwraca projekty, których użytkownik jeszcze nie ocenił.",
+    description="Zwraca listę nieocenionych projektów.",
     tags=set(['retrieval', 'progress']),
 )
 async def get_ungraded_projects_tool() -> str:
@@ -263,13 +275,17 @@ async def get_ungraded_projects_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-            return "ERROR: 'user_index' header not found"
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
         retriever = Neo4jRetriever()
         lst = retriever.get_ungraded_projects(index=user_index)
         retriever.close()
-        return f"Ungraded projects for {user_index}: {lst}"
+
+        return json.dumps(lst, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 
 @MCP_SERVER.tool(
@@ -317,10 +333,13 @@ async def get_next_required_state_tool() -> dict:
             next_state_info["last_state"] = session.get("last_state")
             next_state_info["session_id"] = session.get("session_id")
             next_state_info["current_state_in_session"] = session.get("current_state")
+            next_state_info["pending_target_json"] = session.get("pending_target_json")
         else:
             next_state_info["last_state"] = None
             next_state_info["session_id"] = None
             next_state_info["current_state_in_session"] = None
+            next_state_info["pending_target_json"] = None
+
 
         # Rename 'state' to 'next_state' for clarity (it represents the next required state)
         if "state" in next_state_info:
@@ -419,7 +438,7 @@ async def save_conversation_message_tool(session_id: str, role: str, content: st
     description="Updates the conversation session state after completing a state. Moves current_state to last_state and sets new current_state.",
     tags=set(['state', 'session', 'workflow']),
 )
-async def update_session_state_tool(new_state: str) -> dict:
+async def update_session_state_tool(new_state: str, pending_target: dict | None = None) -> dict:
     """
     Updates the session state after successfully completing a conversation state.
     Moves the current state to last_state and sets the new current_state.
@@ -445,12 +464,14 @@ async def update_session_state_tool(new_state: str) -> dict:
         session_id = session['session_id']
         previous_state = session['current_state']
 
-        # Update the session state
+        pending_target_json = json.dumps(pending_target, ensure_ascii=False) if pending_target else None
+
         updated = retriever.update_session_state(
             session_id=session_id,
             new_state=new_state,
-            previous_state=previous_state
+            pending_target_json=pending_target_json
         )
+
 
         retriever.close()
 
@@ -460,7 +481,8 @@ async def update_session_state_tool(new_state: str) -> dict:
                 "session_id": session_id,
                 "previous_state": previous_state,
                 "new_state": new_state,
-                "last_state": previous_state  # The old current_state is now last_state
+                "pending_target_json": pending_target_json
+
             }
         else:
             return {"error": "Failed to update session state"}
