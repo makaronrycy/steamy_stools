@@ -334,11 +334,15 @@ async def get_next_required_state_tool() -> dict:
             next_state_info["session_id"] = session.get("session_id")
             next_state_info["current_state_in_session"] = session.get("current_state")
             next_state_info["pending_target_json"] = session.get("pending_target_json")
+            next_state_info["pending_substate_json"] = session.get("pending_substate_json")
+
         else:
             next_state_info["last_state"] = None
             next_state_info["session_id"] = None
             next_state_info["current_state_in_session"] = None
             next_state_info["pending_target_json"] = None
+            next_state_info["pending_substate_json"] = None
+
 
 
         # Rename 'state' to 'next_state' for clarity (it represents the next required state)
@@ -435,20 +439,10 @@ async def save_conversation_message_tool(session_id: str, role: str, content: st
 
 @MCP_SERVER.tool(
     name="update_session_state_tool",
-    description="Updates the conversation session state after completing a state. Moves current_state to last_state and sets new current_state.",
+    description="Updates the conversation session state after completing a step. Also persists pending_target and optional pending_substate.",
     tags=set(['state', 'session', 'workflow']),
 )
-async def update_session_state_tool(new_state: str, pending_target: dict | None = None) -> dict:
-    """
-    Updates the session state after successfully completing a conversation state.
-    Moves the current state to last_state and sets the new current_state.
-
-    Args:
-        new_state: The new state to set as current_state
-
-    Returns:
-        dict: Updated session information
-    """
+async def update_session_state_tool(new_state: str, pending_target: dict | None = None, pending_substate: dict | None = None) -> dict:
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
@@ -456,22 +450,22 @@ async def update_session_state_tool(new_state: str, pending_target: dict | None 
         if not user_index:
             return {"error": "'user_id' header not found"}
 
-        # Get or create session
         session = retriever.get_or_create_session(student_index=user_index)
         if not session:
             return {"error": "Could not retrieve session"}
 
-        session_id = session['session_id']
-        previous_state = session['current_state']
+        session_id = session["session_id"]
+        previous_state = session["current_state"]
 
         pending_target_json = json.dumps(pending_target, ensure_ascii=False) if pending_target else None
+        pending_substate_json = json.dumps(pending_substate, ensure_ascii=False) if pending_substate else None
 
         updated = retriever.update_session_state(
             session_id=session_id,
             new_state=new_state,
-            pending_target_json=pending_target_json
+            pending_target_json=pending_target_json,
+            pending_substate_json=pending_substate_json,
         )
-
 
         retriever.close()
 
@@ -481,14 +475,15 @@ async def update_session_state_tool(new_state: str, pending_target: dict | None 
                 "session_id": session_id,
                 "previous_state": previous_state,
                 "new_state": new_state,
-                "pending_target_json": pending_target_json
-
+                "pending_target_json": pending_target_json,
+                "pending_substate_json": pending_substate_json,
             }
         else:
             return {"error": "Failed to update session state"}
 
     except Exception as e:
         return {"error": str(e)}
+
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------SET METHOD TOOLS----------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -701,3 +696,115 @@ async def set_study_program_feedback_tool(param: SetOpenAnswerRequest) -> str:
         return f"SUCCESS: study_program_feedback saved for student {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+    
+@MCP_SERVER.tool(
+    name="check_teammate_outlier_tool",
+    description="Checks if current user's teammate grade is an outlier vs peers. Returns JSON.",
+    tags=set(['retrieval', 'analysis']),
+)
+async def check_teammate_outlier_tool(graded_person_index: str, threshold: float = 1.0, min_peers: int = 3) -> str:
+    try:
+        request = get_http_request()
+        grader_index = request.headers.get("user_id")
+        if not grader_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+
+        # all grades given to graded_person_index
+        grades = retriever.get_member_grades(index=str(graded_person_index)) or []
+
+        # find user's latest answer meta (also tells if followup already done)
+        meta = retriever.get_latest_teammate_answer_meta(grading_person_index=str(grader_index), graded_person_index=str(graded_person_index))
+        if not meta or meta.get("grade") is None:
+            retriever.close()
+            return json.dumps({"eligible": False, "is_outlier": False, "reason": "No user grade found yet."}, ensure_ascii=False)
+
+        if meta.get("outlier_followup_done"):
+            retriever.close()
+            return json.dumps({"eligible": True, "is_outlier": False, "reason": "Outlier follow-up already done."}, ensure_ascii=False)
+
+        user_grade = float(meta["grade"])
+
+        peers = []
+        for g in grades:
+            try:
+                if str(g.get("grader_index")) == str(grader_index):
+                    continue
+                if g.get("grade") is None:
+                    continue
+                peers.append(float(g["grade"]))
+            except Exception:
+                continue
+
+        if len(peers) < int(min_peers):
+            retriever.close()
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": f"Not enough peer grades (need {min_peers}, have {len(peers)}).",
+                "user_grade": user_grade,
+                "peer_count": len(peers),
+            }, ensure_ascii=False)
+
+        peers_sorted = sorted(peers)
+        n = len(peers_sorted)
+        if n % 2 == 1:
+            median = peers_sorted[n // 2]
+        else:
+            median = (peers_sorted[n // 2 - 1] + peers_sorted[n // 2]) / 2.0
+
+        mean = sum(peers_sorted) / n
+        diff = user_grade - median
+
+        is_outlier = abs(diff) >= float(threshold)
+
+        followup = None
+        if is_outlier:
+            direction = "wyżej" if diff > 0 else "niżej"
+            followup = (
+                f"Widzę, że dałeś/aś ocenę **{user_grade:.1f}**, a mediana ocen innych osób to około **{median:.1f}** "
+                f"(Twoja ocena jest {direction}). Możesz krótko wyjaśnić, **co konkretnie** uzasadnia tę różnicę? "
+                f"Podaj 1–2 przykłady zachowań/kontrybucji tej osoby."
+            )
+
+        retriever.close()
+        return json.dumps({
+            "eligible": True,
+            "is_outlier": is_outlier,
+            "user_grade": user_grade,
+            "peer_count": n,
+            "peer_median": median,
+            "peer_mean": mean,
+            "threshold": float(threshold),
+            "followup_question": followup,
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+    
+@MCP_SERVER.tool(
+    name="append_teammate_outlier_followup_tool",
+    description="Appends outlier follow-up to the latest teammate assessment Answer for (grader->graded).",
+    tags=set(['set', 'write']),
+)
+async def append_teammate_outlier_followup_tool(graded_person_index: str, followup: str) -> str:
+    try:
+        request = get_http_request()
+        grader_index = request.headers.get("user_id")
+        if not grader_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        ok = retriever.append_teammate_outlier_followup(
+            grading_person_index=str(grader_index),
+            graded_person_index=str(graded_person_index),
+            followup=followup
+        )
+        retriever.close()
+
+        return json.dumps({"success": bool(ok)}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+

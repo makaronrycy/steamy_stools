@@ -24,6 +24,50 @@ class Neo4jRetriever:
     def get_node_types(self):
         return {"node_types": []}
     
+    def get_latest_teammate_answer_meta(self, grading_person_index: str, graded_person_index: str) -> dict | None:
+        """
+        Returns latest teammate_assessment answer meta for (grader -> graded).
+        Uses id(a) ordering so it works even without timestamps.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $grading_person_index})-[:answered]->(a:Answer)-[:refers_to]->(graded:Student {index: $graded_person_index})
+                WHERE a.question_type = "teammate_assessment"
+                RETURN a.grade AS grade,
+                    a.explanation AS explanation,
+                    coalesce(a.outlier_followup_done, false) AS outlier_followup_done
+                ORDER BY id(a) DESC
+                LIMIT 1
+            """, grading_person_index=grading_person_index, graded_person_index=graded_person_index)
+            rec = result.single()
+            if not rec:
+                return None
+            return {
+                "grade": rec["grade"],
+                "explanation": rec["explanation"],
+                "outlier_followup_done": rec["outlier_followup_done"],
+            }
+
+    def append_teammate_outlier_followup(self, grading_person_index: str, graded_person_index: str, followup: str) -> bool:
+        """
+        Appends outlier follow-up to the latest teammate_assessment answer and marks followup done.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $grading_person_index})-[:answered]->(a:Answer)-[:refers_to]->(graded:Student {index: $graded_person_index})
+                WHERE a.question_type = "teammate_assessment"
+                WITH a
+                ORDER BY id(a) DESC
+                LIMIT 1
+                SET a.outlier_followup = $followup,
+                    a.outlier_followup_done = true,
+                    a.explanation = coalesce(a.explanation, "") + "\n\n[Dodatkowe uzasadnienie - outlier]: " + $followup
+                RETURN true AS ok
+            """, grading_person_index=grading_person_index, graded_person_index=graded_person_index, followup=followup)
+            rec = result.single()
+            return bool(rec and rec["ok"])
+
+    
     def get_students(self):
         with self.driver.session() as session:
             result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
@@ -84,34 +128,37 @@ class Neo4jRetriever:
 
     def get_member_grades(self, index: str):
         """
-        Get grades for a given member (index) [mark leader grades] 
-        -> grade, justification, grader_index, is_leader
-        
-        Args:
-            index: Index of the graded member
-            
-        Returns:
-            List of member grades with information if grader was a leader
+        Get grades for a given member (index) and mark whether grader is leader in the same project.
+        Returns: grade, explanation, grader_index, is_leader
         """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (graded:Student {index: $index})
+                OPTIONAL MATCH (graded)-[:belongs_to]->(p:Project)
+
                 OPTIONAL MATCH (grader:Student)-[:answered]->(answer:Answer)-[:refers_to]->(graded)
                 WHERE answer.question_type = "teammate_assessment"
-                OPTIONAL MATCH (grader)-[r:belongs_to]->(project:Project)
-                OPTIONAL MATCH (graded)-[:belongs_to]->(same_project:Project)
-                WHERE project = same_project AND r.role = "leader"
+
+                // leader relationship only used for flagging, NOT filtering results
+                OPTIONAL MATCH (grader)-[lr:belongs_to {role: "leader"}]->(p)
+
                 RETURN answer.grade as grade,
-                       answer.explanation as explanation,
-                       grader.index as grader_index,
-                       CASE WHEN r.role = "leader" THEN true ELSE false END as is_leader
+                    answer.explanation as explanation,
+                    grader.index as grader_index,
+                    CASE WHEN lr IS NOT NULL THEN true ELSE false END as is_leader
                 ORDER BY grader.index
             """, index=index)
-            
-            return [{"grade": record["grade"], 
-                    "explanation": record["explanation"], 
+
+            return [
+                {
+                    "grade": record["grade"],
+                    "explanation": record["explanation"],
                     "grader_index": record["grader_index"],
-                    "is_leader": record["is_leader"]} for record in result]
+                    "is_leader": record["is_leader"],
+                }
+                for record in result
+            ]
+
 
     def is_leader(self, index: str):
         """
@@ -683,9 +730,6 @@ class Neo4jRetriever:
         return self.create_conversation_session(student_index)
 
     def create_conversation_session(self, student_index: str):
-        """
-        Create new conversation session for a student
-        """
         import uuid
         with self.driver.session() as session:
             session_id = str(uuid.uuid4())
@@ -697,6 +741,7 @@ class Neo4jRetriever:
                     current_state: "initial",
                     last_state: null,
                     pending_target_json: null,
+                    pending_substate_json: null,
                     started_at: datetime(),
                     last_updated: datetime(),
                     is_active: true,
@@ -708,6 +753,7 @@ class Neo4jRetriever:
                     cs.current_state as current_state,
                     cs.last_state as last_state,
                     cs.pending_target_json as pending_target_json,
+                    cs.pending_substate_json as pending_substate_json,
                     cs.started_at as started_at,
                     cs.last_updated as last_updated,
                     cs.is_active as is_active,
@@ -722,6 +768,7 @@ class Neo4jRetriever:
                     "current_state": record["current_state"],
                     "last_state": record["last_state"],
                     "pending_target_json": record["pending_target_json"],
+                    "pending_substate_json": record["pending_substate_json"],
                     "started_at": record["started_at"],
                     "last_updated": record["last_updated"],
                     "is_active": record["is_active"],
@@ -730,10 +777,8 @@ class Neo4jRetriever:
         return None
 
 
+
     def get_active_session(self, student_index: str):
-        """
-        Get active conversation session for a student
-        """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:HAS_SESSION]->(cs:ConversationSession)
@@ -743,6 +788,7 @@ class Neo4jRetriever:
                     cs.current_state as current_state,
                     cs.last_state as last_state,
                     cs.pending_target_json as pending_target_json,
+                    cs.pending_substate_json as pending_substate_json,
                     cs.started_at as started_at,
                     cs.last_updated as last_updated,
                     cs.is_active as is_active,
@@ -759,6 +805,7 @@ class Neo4jRetriever:
                     "current_state": record["current_state"],
                     "last_state": record["last_state"],
                     "pending_target_json": record["pending_target_json"],
+                    "pending_substate_json": record["pending_substate_json"],
                     "started_at": record["started_at"],
                     "last_updated": record["last_updated"],
                     "is_active": record["is_active"],
@@ -767,9 +814,17 @@ class Neo4jRetriever:
         return None
 
 
-    def update_session_state(self, session_id: str, new_state: str, pending_target_json: str | None = None):
+
+    def update_session_state(
+        self,
+        session_id: str,
+        new_state: str,
+        pending_target_json: str | None = None,
+        pending_substate_json: str | None = None,
+    ):
         """
-        Atomically: last_state <- current_state, current_state <- new_state, pending_target_json <- pending_target_json
+        Atomically: last_state <- current_state, current_state <- new_state,
+        pending_target_json <- pending_target_json, pending_substate_json <- pending_substate_json
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -777,11 +832,17 @@ class Neo4jRetriever:
                 SET cs.last_state = cs.current_state,
                     cs.current_state = $new_state,
                     cs.pending_target_json = $pending_target_json,
+                    cs.pending_substate_json = $pending_substate_json,
                     cs.last_updated = datetime()
                 RETURN cs.session_id as session_id
-            """, session_id=session_id, new_state=new_state, pending_target_json=pending_target_json)
-
+            """,
+                session_id=session_id,
+                new_state=new_state,
+                pending_target_json=pending_target_json,
+                pending_substate_json=pending_substate_json,
+            )
             return result.single() is not None
+
 
 
     def save_conversation_message(self, session_id: str, role: str, content: str, state_at_time: str):

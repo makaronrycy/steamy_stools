@@ -107,7 +107,11 @@ def get_app() -> Sanic:
         parsed = _parse_maybe_json(_extract_tool_text(r))
         return parsed if isinstance(parsed, dict) else {}
 
-    async def _is_pending_state_completed(mcp_server: MCPServerStreamableHttp, pending_state_key: str, pending_target: dict | None) -> bool:
+    async def _is_pending_state_completed(
+        mcp_server: MCPServerStreamableHttp,
+        pending_state_key: str,
+        pending_target: dict | None
+    ) -> bool:
         """
         DB-first completion check for the *pending* item.
         This prevents loops when model replied but tools didn't persist.
@@ -125,7 +129,6 @@ def get_app() -> Sanic:
             for d in incomplete:
                 if str(d.get("teammate_index")) == tgt:
                     return bool(d.get("has_grade")) and bool(d.get("has_explanation"))
-            # not listed as incomplete => treat as complete
             return True
 
         if pending_state_key == "evaluate_project_grade":
@@ -220,6 +223,106 @@ def get_app() -> Sanic:
                 return "Dopisz proszę **1–2 zdania uzasadnienia** (razem z oceną w tej samej wiadomości)."
 
         return "Podaj proszę brakujące informacje: **ocena 2.0–5.0** oraz **krótkie uzasadnienie** (w jednej wiadomości)."
+    
+    def _contextual_followup(pending_state_key: str, pending_target: dict | None, user_answer: str, completion_status: dict) -> str:
+        """
+        Human-friendly follow-up question based on user's last answer + what DB says is missing.
+        Does NOT change state logic; only changes phrasing of clarification.
+        """
+        ua = (user_answer or "").strip()
+        ua_low = ua.lower()
+
+        # helpers to detect missing fields from DB status
+        def _self_missing():
+            det = completion_status.get("self_assessment", {})
+            return (not det.get("has_grade", False), not det.get("has_explanation", False))
+
+        def _teammate_missing():
+            idx = pending_target.get("index") if pending_target else None
+            incomplete = completion_status.get("teammate_assessments", {}).get("incomplete_details", []) or []
+            for d in incomplete:
+                if str(d.get("teammate_index")) == str(idx):
+                    return (not d.get("has_grade", False), not d.get("has_explanation", False))
+            # if not found, assume both missing (safe fallback)
+            return (True, True)
+
+        def _project_missing():
+            pid = pending_target.get("project_id") if pending_target else None
+            incomplete = completion_status.get("project_assessments", {}).get("incomplete_details", []) or []
+            for d in incomplete:
+                if str(d.get("project_id")) == str(pid):
+                    return (not d.get("has_grade", False), not d.get("has_explanation", False))
+            return (True, True)
+
+        def _leader_missing():
+            det = completion_status.get("leadership_assessment", {})
+            return (not det.get("has_grade", False), not det.get("has_explanation", False))
+
+        # SELF
+        if pending_state_key == "self_evaluation":
+            missing_grade, missing_exp = _self_missing()
+
+            if missing_grade and missing_exp:
+                return "OK — podaj proszę **ocenę (2.0–5.0)** oraz **1–2 zdania uzasadnienia** w jednej wiadomości."
+
+            if missing_grade:
+                return "Rozumiem. Podaj proszę jeszcze **konkretną ocenę 2.0–5.0** (np. 4.5)."
+
+            if missing_exp:
+                # react to casual / strong wording
+                if any(x in ua_low for x in ["super", "świetn", "mega", "kozack", "git"]):
+                    return "Brzmi mocno 🙂 Możesz rozwinąć **dlaczego** tak uważasz? Podaj 1–2 konkretne przykłady z projektu."
+                return "Możesz dopisać **1–2 zdania uzasadnienia** i podać konkretne przykłady (co dokładnie zrobiłeś/aś)?"
+
+        # TEAMMATE
+        if pending_state_key == "evaluate_teammate_grade":
+            missing_grade, missing_exp = _teammate_missing()
+            name = ""
+            if pending_target:
+                name = f"{pending_target.get('name', '')} {pending_target.get('surname', '')}".strip()
+
+            if missing_grade and missing_exp:
+                return f"Jasne — podaj proszę **ocenę (2.0–5.0)** dla {name} oraz **krótkie uzasadnienie** (1–2 zdania)."
+
+            if missing_grade:
+                return f"Podaj proszę jeszcze samą **ocenę 2.0–5.0** dla {name}."
+
+            if missing_exp:
+                return f"Możesz krótko doprecyzować **dlaczego** taka ocena dla {name}? 1–2 konkretne przykłady."
+
+        # PROJECT
+        if pending_state_key == "evaluate_project_grade":
+            missing_grade, missing_exp = _project_missing()
+            pname = (pending_target.get("project_name") if pending_target else "") or "tego projektu"
+
+            if missing_grade and missing_exp:
+                return f"OK — podaj proszę **ocenę (2.0–5.0)** dla „{pname}” i **krótkie uzasadnienie** (1–2 zdania)."
+
+            if missing_grade:
+                return f"Podaj proszę jeszcze **ocenę 2.0–5.0** dla „{pname}”."
+
+            if missing_exp:
+                return f"Możesz dopisać **krótkie uzasadnienie** dla „{pname}”? Najlepiej 1–2 zdania (co działa / co nie)."
+
+        # LEADER
+        if pending_state_key == "evaluate_leader_grade":
+            missing_grade, missing_exp = _leader_missing()
+            name = ""
+            if pending_target:
+                name = f"{pending_target.get('name', '')} {pending_target.get('surname', '')}".strip()
+
+            if missing_grade and missing_exp:
+                return f"OK — podaj proszę **ocenę (2.0–5.0)** dla lidera {name} i **krótkie uzasadnienie** (1–2 zdania)."
+
+            if missing_grade:
+                return f"Podaj proszę jeszcze **ocenę 2.0–5.0** dla lidera {name}."
+
+            if missing_exp:
+                return f"Możesz rozwinąć **dlaczego** taka ocena dla lidera {name}? Podaj 1–2 konkretne przykłady."
+
+        # fallback
+        return "Możesz doprecyzować odpowiedź? Podaj proszę **ocenę 2.0–5.0** i **1–2 zdania uzasadnienia** w jednej wiadomości."
+    
 
     async def _build_verification_agent(mcp_server: MCPServerStreamableHttp, agent_name: str, prompt_name: str) -> Agent:
         p = await mcp_server.session.get_prompt(prompt_name)
@@ -250,7 +353,12 @@ def get_app() -> Sanic:
                 text = ""
         return text
 
-    async def _ask_initial_question(mcp_server: MCPServerStreamableHttp, session_id: str | None, user_id: int, state_key: str) -> str:
+    async def _ask_initial_question(
+        mcp_server: MCPServerStreamableHttp,
+        session_id: str | None,
+        user_id: int,
+        state_key: str
+    ) -> str:
         info_raw = _extract_tool_text(await mcp_server.session.call_tool("get_user_info_tool"))
         info = _parse_maybe_json(info_raw) or {}
         if isinstance(info, dict) and not info.get("error"):
@@ -311,6 +419,7 @@ def get_app() -> Sanic:
             session_id = state_dict.get("session_id")
             pending_state_key = state_dict.get("current_state_in_session", "initial")
             pending_target_json = state_dict.get("pending_target_json")
+            pending_substate_json = state_dict.get("pending_substate_json")
 
             pending_target = None
             if pending_target_json:
@@ -319,12 +428,20 @@ def get_app() -> Sanic:
                 except Exception:
                     pending_target = _parse_maybe_json(pending_target_json)
 
+            pending_substate = None
+            if pending_substate_json:
+                try:
+                    pending_substate = json.loads(pending_substate_json)
+                except Exception:
+                    pending_substate = _parse_maybe_json(pending_substate_json)
+
             if pending_state_key not in AVAILABLE_STATES:
                 pending_state_key = "initial"
             pending_state = AVAILABLE_STATES[pending_state_key]
 
             print(f"Pending state: {pending_state_key}")
             print(f"Pending target: {pending_target}")
+            print(f"Pending substate: {pending_substate}")
 
             # 2) Ensure target exists for target states
             if _needs_target(pending_state_key) and not pending_target:
@@ -338,8 +455,52 @@ def get_app() -> Sanic:
             # 3) If no real answer -> ask pending question (DB-driven)
             has_real_answer = (user_anwser or "").strip() != "" and user_anwser != "No anwser for last question."
             if not has_real_answer:
+
+                # --- 3B) SUBSTATE: outlier followup ---
+                if isinstance(pending_substate, dict) and pending_substate.get("type") == "outlier_followup":
+                    q = pending_substate.get("question")
+
+                    if not q:
+                        # fallback if question missing
+                        if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
+                            r = await mcp_server.session.call_tool(
+                                "check_teammate_outlier_tool",
+                                arguments={"graded_person_index": str(pending_target["index"])}
+                            )
+                            out = _parse_maybe_json(_extract_tool_text(r)) or {}
+                            q = out.get("followup_question") or "Możesz doprecyzować uzasadnienie tej oceny (1–2 przykłady)?"
+                        else:
+                            q = "Możesz doprecyzować uzasadnienie tej oceny (1–2 przykłady)?"
+
+                    final_q = q
+
+                    if session_id:
+                        await mcp_server.session.call_tool(
+                            "save_conversation_message_tool",
+                            arguments={
+                                "session_id": session_id,
+                                "role": "assistant",
+                                "content": final_q,
+                                "state_at_time": pending_state_key,
+                            },
+                        )
+
+                    await mcp_server.cleanup()
+                    return response.json(
+                        {
+                            "status": "completed",
+                            "question": final_q,
+                            "current_state": pending_state_key,
+                            "next_state": pending_state_key,
+                        },
+                        ensure_ascii=False,
+                    )
+                # --- END SUBSTATE ---
+
+                # normal question path (no substate)
                 if pending_state_key == "initial":
                     final_q = await _ask_initial_question(mcp_server, session_id, user_id, pending_state_key)
+
                 elif pending_state_key == "done":
                     final_q = pending_state.question
                     if session_id:
@@ -352,6 +513,7 @@ def get_app() -> Sanic:
                                 "state_at_time": pending_state_key,
                             },
                         )
+
                 else:
                     final_q = _render_question_text(pending_state_key, pending_state.question, pending_target)
                     if session_id:
@@ -388,58 +550,94 @@ def get_app() -> Sanic:
                     },
                 )
 
-            # 5) Verify + SAVE (verification tools write to DB)
+            # -------- 4C) If we are answering an outlier followup, append it and clear substate --------
             saved = False
             verify_text = ""
+            skip_verification = False
 
-            if pending_state_key == "initial":
-                saved = _is_yes(user_anwser)
-                if not saved:
-                    verify_text = (
-                        "Według bazy tożsamość nie została potwierdzona.\n"
-                        "Jeśli to Ty, wpisz: **tak**.\n"
-                        "Jeśli to nie Ty, wpisz: **nie** (i uruchom rozmowę ponownie z poprawnym user_id)."
+            if isinstance(pending_substate, dict) and pending_substate.get("type") == "outlier_followup":
+                if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
+                    await mcp_server.session.call_tool(
+                        "append_teammate_outlier_followup_tool",
+                        arguments={
+                            "graded_person_index": str(pending_target["index"]),
+                            "followup": user_anwser,
+                        },
                     )
-            elif pending_state_key == "done":
+
+                # clear substate, keep same state/target
+                await mcp_server.session.call_tool(
+                    "update_session_state_tool",
+                    arguments={
+                        "new_state": pending_state_key,
+                        "pending_target": pending_target,
+                        "pending_substate": None,
+                    },
+                )
+
+                # Treat as saved and skip normal verification
                 saved = True
                 verify_text = ""
-            else:
-                verify_prompt_name = pending_state.verification_prompt_name
-                if not verify_prompt_name:
-                    saved = False
-                    verify_text = "Brakuje prompta weryfikacyjnego dla tego stanu — nie mogę zapisać odpowiedzi."
-                else:
-                    history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
-                    history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
-                    history_messages = history_dict.get("messages", [])
+                skip_verification = True
 
-                    v_agent = await _build_verification_agent(
-                        mcp_server=mcp_server,
-                        agent_name=f"VerificationAgent/{pending_state_key}",
-                        prompt_name=verify_prompt_name,
-                    )
-
-                    verify_input = (
-                        f"HISTORIA: {history_messages}\n"
-                        f"PENDING_STATE: {pending_state_key}\n"
-                        f"PENDING_TARGET: {pending_target}\n"
-                        f"ODPOWIEDŹ_UŻYTKOWNIKA: {user_anwser}\n"
-                    )
-                    verify_text = await _run_agent_text(v_agent, verify_input)
-
-                    # DB-first: check completion after verifier runs
-                    saved = await _is_pending_state_completed(mcp_server, pending_state_key, pending_target)
-
-                    # If not saved, add DB-derived precise hint
+            # 5) Verify + SAVE (verification tools write to DB)  [only if not skip_verification]
+            if not skip_verification:
+                if pending_state_key == "initial":
+                    saved = _is_yes(user_anwser)
                     if not saved:
-                        completion_status = await _get_completion_status(mcp_server)
-                        hint = _missing_info_hint(pending_state_key, pending_target or {}, completion_status)
-                        if not (verify_text or "").strip():
-                            verify_text = hint
-                        else:
-                            low = verify_text.lower()
-                            if ("doprecyz" in low) or ("brakuje" in low):
-                                verify_text = f"{verify_text.strip()}\n\n{hint}"
+                        verify_text = (
+                            "Według bazy tożsamość nie została potwierdzona.\n"
+                            "Jeśli to Ty, wpisz: **tak**.\n"
+                            "Jeśli to nie Ty, wpisz: **nie** (i uruchom rozmowę ponownie z poprawnym user_id)."
+                        )
+                elif pending_state_key == "done":
+                    saved = True
+                    verify_text = ""
+                else:
+                    verify_prompt_name = pending_state.verification_prompt_name
+                    if not verify_prompt_name:
+                        saved = False
+                        verify_text = "Brakuje prompta weryfikacyjnego dla tego stanu — nie mogę zapisać odpowiedzi."
+                    else:
+                        history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
+                        history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
+                        history_messages = history_dict.get("messages", [])
+
+                        v_agent = await _build_verification_agent(
+                            mcp_server=mcp_server,
+                            agent_name=f"VerificationAgent/{pending_state_key}",
+                            prompt_name=verify_prompt_name,
+                        )
+
+                        verify_input = (
+                            f"HISTORIA: {history_messages}\n"
+                            f"PENDING_STATE: {pending_state_key}\n"
+                            f"PENDING_TARGET: {pending_target}\n"
+                            f"ODPOWIEDŹ_UŻYTKOWNIKA: {user_anwser}\n"
+                        )
+                        verify_text = await _run_agent_text(v_agent, verify_input)
+
+                        # DB-first: check completion after verifier runs
+                        saved = await _is_pending_state_completed(mcp_server, pending_state_key, pending_target)
+
+                        # If not saved, add DB-derived precise hint
+                        if not saved:
+                            completion_status = await _get_completion_status(mcp_server)
+
+                            # human-friendly, based on what user wrote + what's missing in DB
+                            hint = _contextual_followup(pending_state_key, pending_target or {}, user_anwser, completion_status)
+
+                            if not (verify_text or "").strip():
+                                verify_text = hint
+                            else:
+                                low = verify_text.lower()
+                                # if verifier is vague, replace with our contextual question
+                                if ("doprecyz" in low) or ("brakuje" in low):
+                                    verify_text = hint
+                                else:
+                                    # otherwise keep verifier but add a concrete ask
+                                    verify_text = f"{verify_text.strip()}\n\n{hint}"
+
 
             # 6) If not saved -> clarification, keep same state/target
             if not saved:
@@ -470,6 +668,53 @@ def get_app() -> Sanic:
                     ensure_ascii=False,
                 )
 
+            # -------- OUTLIER GATE (substate between states) --------
+            # After a successful save in evaluate_teammate_grade, check if grade is outlier vs peers.
+            if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
+                r = await mcp_server.session.call_tool(
+                    "check_teammate_outlier_tool",
+                    arguments={
+                        "graded_person_index": str(pending_target["index"]),
+                        "threshold": 1.0,
+                        "min_peers": 1, #bylo 3 teraz 1 - dla testow
+                    },
+                )
+                out = _parse_maybe_json(_extract_tool_text(r)) or {}
+                if out.get("eligible") and out.get("is_outlier") and out.get("followup_question"):
+                    sub = {"type": "outlier_followup", "question": out["followup_question"]}
+                    await mcp_server.session.call_tool(
+                        "update_session_state_tool",
+                        arguments={
+                            "new_state": pending_state_key,
+                            "pending_target": pending_target,
+                            "pending_substate": sub,
+                        },
+                    )
+
+                    final_q = out["followup_question"]
+                    if session_id:
+                        await mcp_server.session.call_tool(
+                            "save_conversation_message_tool",
+                            arguments={
+                                "session_id": session_id,
+                                "role": "assistant",
+                                "content": final_q,
+                                "state_at_time": pending_state_key,
+                            },
+                        )
+
+                    await mcp_server.cleanup()
+                    return response.json(
+                        {
+                            "status": "completed",
+                            "question": final_q,
+                            "current_state": pending_state_key,
+                            "next_state": pending_state_key,
+                        },
+                        ensure_ascii=False,
+                    )
+            # -------- END OUTLIER GATE --------
+
             # 7) Saved -> compute next required state from DB, set as new pending, compute target, ask next
             next_state_result = await mcp_server.session.call_tool("get_next_required_state_tool")
             next_state_dict = _parse_maybe_json(_extract_tool_text(next_state_result)) or {}
@@ -485,7 +730,11 @@ def get_app() -> Sanic:
 
             await mcp_server.session.call_tool(
                 "update_session_state_tool",
-                arguments={"new_state": next_state_key, "pending_target": next_target},
+                arguments={
+                    "new_state": next_state_key,
+                    "pending_target": next_target,
+                    "pending_substate": None,
+                },
             )
 
             if next_state_key == "initial":
