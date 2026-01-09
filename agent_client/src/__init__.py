@@ -10,6 +10,7 @@ import ast
 import traceback
 
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://localhost:10000")
+SAFE_WORD = os.getenv("SAFE_WORD", "KONIEC")
 
 
 def get_app() -> Sanic:
@@ -101,6 +102,9 @@ def get_app() -> Sanic:
             t in ("tak", "t", "yes", "y", "ok", "potwierdzam", "zgadza się", "zgadza sie", "to ja", "zgadza")
             or "tak" in t
         )
+
+    def _is_safe_word(text: str) -> bool:
+        return (text or "").strip().upper() == (SAFE_WORD or "KONIEC").strip().upper()
 
     async def _get_completion_status(mcp_server: MCPServerStreamableHttp) -> dict:
         r = await mcp_server.session.call_tool("get_student_completion_status_tool")
@@ -222,8 +226,16 @@ def get_app() -> Sanic:
             if needs_exp:
                 return "Dopisz proszę **1–2 zdania uzasadnienia** (razem z oceną w tej samej wiadomości)."
 
-        return "Podaj proszę brakujące informacje: **ocena 2.0–5.0** oraz **krótkie uzasadnienie** (w jednej wiadomości)."
-    
+        if pending_state_key == "masters_intent":
+            # here we only need an answer + short reasoning, no numeric grade
+            return "Napisz proszę **tak/nie** czy planujesz magisterkę i dodaj **1–2 zdania uzasadnienia**."
+
+        if pending_state_key == "study_program_feedback":
+            # here we only need feedback text
+            return "Napisz proszę **1–3 zdania**: co Ci się podoba w programie studiów i/lub co byś zmienił(a)."
+
+        return "Możesz doprecyzować odpowiedź? Odpowiedz proszę **konkretnie** (1–3 zdania), zgodnie z pytaniem."
+
     def _contextual_followup(pending_state_key: str, pending_target: dict | None, user_answer: str, completion_status: dict) -> str:
         """
         Human-friendly follow-up question based on user's last answer + what DB says is missing.
@@ -232,7 +244,6 @@ def get_app() -> Sanic:
         ua = (user_answer or "").strip()
         ua_low = ua.lower()
 
-        # helpers to detect missing fields from DB status
         def _self_missing():
             det = completion_status.get("self_assessment", {})
             return (not det.get("has_grade", False), not det.get("has_explanation", False))
@@ -243,7 +254,6 @@ def get_app() -> Sanic:
             for d in incomplete:
                 if str(d.get("teammate_index")) == str(idx):
                     return (not d.get("has_grade", False), not d.get("has_explanation", False))
-            # if not found, assume both missing (safe fallback)
             return (True, True)
 
         def _project_missing():
@@ -258,71 +268,62 @@ def get_app() -> Sanic:
             det = completion_status.get("leadership_assessment", {})
             return (not det.get("has_grade", False), not det.get("has_explanation", False))
 
-        # SELF
         if pending_state_key == "self_evaluation":
             missing_grade, missing_exp = _self_missing()
-
             if missing_grade and missing_exp:
                 return "OK — podaj proszę **ocenę (2.0–5.0)** oraz **1–2 zdania uzasadnienia** w jednej wiadomości."
-
             if missing_grade:
                 return "Rozumiem. Podaj proszę jeszcze **konkretną ocenę 2.0–5.0** (np. 4.5)."
-
             if missing_exp:
-                # react to casual / strong wording
-                if any(x in ua_low for x in ["super", "świetn", "mega", "kozack", "git"]):
+                if any(x in ua_low for x in ["super", "świetn", "mega", "kozack", "git", "zajeb"]):
                     return "Brzmi mocno 🙂 Możesz rozwinąć **dlaczego** tak uważasz? Podaj 1–2 konkretne przykłady z projektu."
                 return "Możesz dopisać **1–2 zdania uzasadnienia** i podać konkretne przykłady (co dokładnie zrobiłeś/aś)?"
 
-        # TEAMMATE
         if pending_state_key == "evaluate_teammate_grade":
             missing_grade, missing_exp = _teammate_missing()
             name = ""
             if pending_target:
                 name = f"{pending_target.get('name', '')} {pending_target.get('surname', '')}".strip()
-
             if missing_grade and missing_exp:
                 return f"Jasne — podaj proszę **ocenę (2.0–5.0)** dla {name} oraz **krótkie uzasadnienie** (1–2 zdania)."
-
             if missing_grade:
                 return f"Podaj proszę jeszcze samą **ocenę 2.0–5.0** dla {name}."
-
             if missing_exp:
                 return f"Możesz krótko doprecyzować **dlaczego** taka ocena dla {name}? 1–2 konkretne przykłady."
 
-        # PROJECT
         if pending_state_key == "evaluate_project_grade":
             missing_grade, missing_exp = _project_missing()
             pname = (pending_target.get("project_name") if pending_target else "") or "tego projektu"
-
             if missing_grade and missing_exp:
                 return f"OK — podaj proszę **ocenę (2.0–5.0)** dla „{pname}” i **krótkie uzasadnienie** (1–2 zdania)."
-
             if missing_grade:
                 return f"Podaj proszę jeszcze **ocenę 2.0–5.0** dla „{pname}”."
-
             if missing_exp:
                 return f"Możesz dopisać **krótkie uzasadnienie** dla „{pname}”? Najlepiej 1–2 zdania (co działa / co nie)."
 
-        # LEADER
         if pending_state_key == "evaluate_leader_grade":
             missing_grade, missing_exp = _leader_missing()
             name = ""
             if pending_target:
                 name = f"{pending_target.get('name', '')} {pending_target.get('surname', '')}".strip()
-
             if missing_grade and missing_exp:
                 return f"OK — podaj proszę **ocenę (2.0–5.0)** dla lidera {name} i **krótkie uzasadnienie** (1–2 zdania)."
-
             if missing_grade:
                 return f"Podaj proszę jeszcze **ocenę 2.0–5.0** dla lidera {name}."
-
             if missing_exp:
                 return f"Możesz rozwinąć **dlaczego** taka ocena dla lidera {name}? Podaj 1–2 konkretne przykłady."
 
-        # fallback
-        return "Możesz doprecyzować odpowiedź? Podaj proszę **ocenę 2.0–5.0** i **1–2 zdania uzasadnienia** w jednej wiadomości."
-    
+        if pending_state_key == "masters_intent":
+            # this state is NOT numeric; we just need an answer + short reason
+            return "Odpowiedz proszę jasno: czy planujesz magisterkę (**tak/nie**) i dopisz krótko dlaczego (1–2 zdania)."
+
+        if pending_state_key == "study_program_feedback":
+            # this state is NOT numeric; we just need feedback
+            if any(x in ua_low for x in ["nie mam", "brak", "wszystko ok", "w porzadku", "w porządku"]):
+                return "OK — a czy jest coś, co **szczególnie** Ci się podoba (np. przedmiot / forma zajęć) albo co byś choć trochę usprawnił/a? 1–2 zdania."
+            return "Możesz doprecyzować: **co byś zmienił/a** w programie studiów albo co najbardziej Ci się podoba? 1–3 zdania."
+
+        return "Możesz doprecyzować odpowiedź? Odpowiedz proszę 1–3 zdaniami na pytanie."
 
     async def _build_verification_agent(mcp_server: MCPServerStreamableHttp, agent_name: str, prompt_name: str) -> Agent:
         p = await mcp_server.session.get_prompt(prompt_name)
@@ -334,6 +335,20 @@ def get_app() -> Sanic:
             instructions=base_instructions.strip(),
             mcp_servers=[mcp_server],
             model_settings=ModelSettings(tool_choice="auto"),
+        )
+
+    async def _build_post_interview_chat_agent(mcp_server: MCPServerStreamableHttp) -> Agent:
+        instructions = (
+            "Wywiad został zakończony. Teraz prowadzisz luźny chitchat z użytkownikiem.\n"
+            "- Odpowiadaj naturalnie, krótko i po ludzku.\n"
+            "- Możesz nawiązywać do kontekstu rozmowy, ale NIE zmieniaj danych wywiadu w bazie.\n"
+            f"- Jeśli użytkownik napisze dokładnie: {SAFE_WORD} (bez dodatkowych słów) -> zakończ rozmowę krótkim pożegnaniem.\n"
+        )
+        # IMPORTANT: no MCP servers here -> the model cannot call DB/tools during chit-chat.
+        return Agent(
+            name="PostInterviewChat",
+            model="gpt-4o-mini",
+            instructions=instructions.strip(),
         )
 
     async def _run_agent_text(agent: Agent, input_text: str) -> str:
@@ -443,6 +458,146 @@ def get_app() -> Sanic:
             print(f"Pending target: {pending_target}")
             print(f"Pending substate: {pending_substate}")
 
+                        # ---------------------- POST-INTERVIEW CHITCHAT MODE ----------------------
+            # If interview is done (DB says "done"), keep chatting forever until SAFE_WORD.
+            # IMPORTANT: persist "ended" flag in DB (pending_substate) so next requests won't restart chat.
+            if pending_state_key == "done":
+
+                # 0) If chat was already ended earlier -> always end (hard stop)
+                if isinstance(pending_substate, dict) and pending_substate.get("type") == "chat_ended":
+                    farewell = pending_substate.get("farewell") or "Dzięki za rozmowę i za udział w wywiadzie! 👋"
+                    await mcp_server.cleanup()
+                    return response.json(
+                        {
+                            "status": "completed",
+                            "question": farewell,
+                            "current_state": "done",
+                            "next_state": "done",
+                            "chat_mode": False,
+                            "ended": True,
+                        },
+                        ensure_ascii=False,
+                    )
+
+                # 1) End conversation with safe word (persist in DB!)
+                if _is_safe_word(user_anwser):
+                    farewell = "Dzięki za rozmowę i za udział w wywiadzie! 👋"
+
+                    # Save farewell + persist ended flag in DB so chat won't restart next turn
+                    if session_id:
+                        await mcp_server.session.call_tool(
+                            "save_conversation_message_tool",
+                            arguments={
+                                "session_id": session_id,
+                                "role": "assistant",
+                                "content": farewell,
+                                "state_at_time": "done",
+                            },
+                        )
+                        await mcp_server.session.call_tool(
+                            "update_session_state_tool",
+                            arguments={
+                                "new_state": "done",
+                                "pending_target": None,
+                                "pending_substate": {"type": "chat_ended", "farewell": farewell},
+                            },
+                        )
+
+                    await mcp_server.cleanup()
+                    return response.json(
+                        {
+                            "status": "completed",
+                            "question": farewell,
+                            "current_state": "done",
+                            "next_state": "done",
+                            "chat_mode": False,
+                            "ended": True,
+                        },
+                        ensure_ascii=False,
+                    )
+
+                # 2) If no real answer -> show kickoff message
+                has_real_answer = (user_anwser or "").strip() != "" and user_anwser != "No anwser for last question."
+                if not has_real_answer:
+                    kickoff = (
+                        "Wywiad mamy już ogarnięty ✅\n\n"
+                        "Możemy teraz pogadać luźno — o projekcie, studiach, planach, czymkolwiek.\n"
+                        f"Żeby zakończyć definitywnie: wpisz **{SAFE_WORD}**."
+                    )
+                    if session_id:
+                        await mcp_server.session.call_tool(
+                            "save_conversation_message_tool",
+                            arguments={
+                                "session_id": session_id,
+                                "role": "assistant",
+                                "content": kickoff,
+                                "state_at_time": "done",
+                            },
+                        )
+                    await mcp_server.cleanup()
+                    return response.json(
+                        {
+                            "status": "completed",
+                            "question": kickoff,
+                            "current_state": "done",
+                            "next_state": "done",
+                            "chat_mode": True,
+                        },
+                        ensure_ascii=False,
+                    )
+
+                # 3) Save user message (as chat)
+                if session_id:
+                    await mcp_server.session.call_tool(
+                        "save_conversation_message_tool",
+                        arguments={
+                            "session_id": session_id,
+                            "role": "user",
+                            "content": user_anwser,
+                            "state_at_time": "done",
+                        },
+                    )
+
+                # 4) Generate chat reply (no DB writes except conversation log)
+                chat_agent = await _build_post_interview_chat_agent(mcp_server)
+
+                history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
+                history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
+                history_messages = history_dict.get("messages", [])
+
+                chat_input = (
+                    f"HISTORIA (skrócona): {history_messages[-12:]}\n"
+                    f"UŻYTKOWNIK: {user_anwser}\n"
+                )
+                chat_reply = await _run_agent_text(chat_agent, chat_input)
+                if not chat_reply:
+                    chat_reply = "Jasne — o czym chcesz pogadać?"
+
+                if session_id:
+                    await mcp_server.session.call_tool(
+                        "save_conversation_message_tool",
+                        arguments={
+                            "session_id": session_id,
+                            "role": "assistant",
+                            "content": chat_reply,
+                            "state_at_time": "done",
+                        },
+                    )
+
+                await mcp_server.cleanup()
+                return response.json(
+                    {
+                        "status": "completed",
+                        "question": chat_reply,
+                        "current_state": "done",
+                        "next_state": "done",
+                        "chat_mode": True,
+                    },
+                    ensure_ascii=False,
+                )
+            # -------------------- END POST-INTERVIEW CHITCHAT MODE --------------------
+
+
             # 2) Ensure target exists for target states
             if _needs_target(pending_state_key) and not pending_target:
                 pending_target = await _compute_target_for_state(mcp_server, pending_state_key)
@@ -500,9 +655,12 @@ def get_app() -> Sanic:
                 # normal question path (no substate)
                 if pending_state_key == "initial":
                     final_q = await _ask_initial_question(mcp_server, session_id, user_id, pending_state_key)
-
                 elif pending_state_key == "done":
-                    final_q = pending_state.question
+                    # Instead of a goodbye message, start the open-ended post-interview chat.
+                    final_q = (
+                        "✅ Wywiad jest już ukończony. Możemy teraz pogadać o czymkolwiek 🙂\n"
+                        f"Jeśli chcesz zakończyć rozmowę i dostać podsumowanie/pożegnanie, wpisz: **{SAFE_WORD}**."
+                    )
                     if session_id:
                         await mcp_server.session.call_tool(
                             "save_conversation_message_tool",
@@ -513,7 +671,6 @@ def get_app() -> Sanic:
                                 "state_at_time": pending_state_key,
                             },
                         )
-
                 else:
                     final_q = _render_question_text(pending_state_key, pending_state.question, pending_target)
                     if session_id:
@@ -590,9 +747,6 @@ def get_app() -> Sanic:
                             "Jeśli to Ty, wpisz: **tak**.\n"
                             "Jeśli to nie Ty, wpisz: **nie** (i uruchom rozmowę ponownie z poprawnym user_id)."
                         )
-                elif pending_state_key == "done":
-                    saved = True
-                    verify_text = ""
                 else:
                     verify_prompt_name = pending_state.verification_prompt_name
                     if not verify_prompt_name:
@@ -624,20 +778,21 @@ def get_app() -> Sanic:
                         if not saved:
                             completion_status = await _get_completion_status(mcp_server)
 
-                            # human-friendly, based on what user wrote + what's missing in DB
-                            hint = _contextual_followup(pending_state_key, pending_target or {}, user_anwser, completion_status)
+                            hint = _contextual_followup(
+                                pending_state_key,
+                                pending_target or {},
+                                user_anwser,
+                                completion_status
+                            )
 
                             if not (verify_text or "").strip():
                                 verify_text = hint
                             else:
                                 low = verify_text.lower()
-                                # if verifier is vague, replace with our contextual question
                                 if ("doprecyz" in low) or ("brakuje" in low):
                                     verify_text = hint
                                 else:
-                                    # otherwise keep verifier but add a concrete ask
                                     verify_text = f"{verify_text.strip()}\n\n{hint}"
-
 
             # 6) If not saved -> clarification, keep same state/target
             if not saved:
@@ -669,14 +824,13 @@ def get_app() -> Sanic:
                 )
 
             # -------- OUTLIER GATE (substate between states) --------
-            # After a successful save in evaluate_teammate_grade, check if grade is outlier vs peers.
             if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
                 r = await mcp_server.session.call_tool(
                     "check_teammate_outlier_tool",
                     arguments={
                         "graded_person_index": str(pending_target["index"]),
                         "threshold": 1.0,
-                        "min_peers": 1, #bylo 3 teraz 1 - dla testow
+                        "min_peers": 1,  # dla testów
                     },
                 )
                 out = _parse_maybe_json(_extract_tool_text(r)) or {}
@@ -739,8 +893,14 @@ def get_app() -> Sanic:
 
             if next_state_key == "initial":
                 final_q = await _ask_initial_question(mcp_server, session_id, user_id, next_state_key)
+
             elif next_state_key == "done":
-                final_q = next_state.question
+                # Do NOT end — switch to chat kickoff (handled at top next turn)
+                final_q = (
+                    "Wywiad mamy już ogarnięty ✅\n\n"
+                    "Możemy teraz pogadać luźno — o projekcie, studiach, planach, czymkolwiek.\n"
+                    f"Żeby zakończyć definitywnie: wpisz **{SAFE_WORD}**."
+                )
                 if session_id:
                     await mcp_server.session.call_tool(
                         "save_conversation_message_tool",
@@ -748,9 +908,10 @@ def get_app() -> Sanic:
                             "session_id": session_id,
                             "role": "assistant",
                             "content": final_q,
-                            "state_at_time": next_state_key,
+                            "state_at_time": "done",
                         },
                     )
+
             else:
                 final_q = _render_question_text(next_state_key, next_state.question, next_target)
                 if session_id:
@@ -771,6 +932,7 @@ def get_app() -> Sanic:
                     "question": final_q,
                     "current_state": next_state_key,
                     "next_state": next_state_key,
+                    "chat_mode": (next_state_key == "done"),
                 },
                 ensure_ascii=False,
             )
