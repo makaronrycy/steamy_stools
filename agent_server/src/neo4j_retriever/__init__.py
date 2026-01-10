@@ -1284,8 +1284,7 @@ class Neo4jRetriever:
                 MATCH (assumption:Assumption {id: $assumption_id})
                 CREATE (student)-[:evaluated]->(eval:AssumptionEvaluation {
                     fulfilled: $fulfilled,
-                    explanation: $explanation,
-                    timestamp: datetime()
+                    explanation: $explanation
                 })-[:refers_to]->(assumption)
                 RETURN student.name as student_name,
                        student.surname as student_surname,
@@ -1320,8 +1319,7 @@ class Neo4jRetriever:
                        student.name as student_name,
                        student.surname as student_surname,
                        eval.fulfilled as fulfilled,
-                       eval.explanation as explanation,
-                       eval.timestamp as timestamp
+                       eval.explanation as explanation
                 ORDER BY student.index
             """, assumption_id=assumption_id)
             
@@ -1329,8 +1327,7 @@ class Neo4jRetriever:
                     "student_name": record["student_name"],
                     "student_surname": record["student_surname"],
                     "fulfilled": record["fulfilled"],
-                    "explanation": record["explanation"],
-                    "timestamp": record["timestamp"]} for record in result]
+                    "explanation": record["explanation"]} for record in result]
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL DATABASE-------------------------------------------------------------------------------------------------------------------------------------------------------------------
