@@ -555,12 +555,45 @@ class Neo4jRetriever:
                 "project_id": proj_id
             }
             
+            # 6. ASSUMPTION EVALUATION
+            assumption_result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (project)-[:has_assumption]->(assumption:Assumption)
+                OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
+                RETURN assumption.id as assumption_id,
+                       assumption.name as assumption_name,
+                       eval.fulfilled as fulfilled,
+                       eval.explanation as explanation
+            """, index=index)
+            
+            assumption_record = assumption_result.single()
+            
+            if assumption_record:
+                assumption_id = assumption_record["assumption_id"]
+                assumption_name = assumption_record["assumption_name"]
+                has_evaluation = assumption_record["fulfilled"] is not None
+                has_explanation = assumption_record["explanation"] is not None and str(assumption_record["explanation"]).strip() != ""
+            else:
+                assumption_id = None
+                assumption_name = None
+                has_evaluation = False
+                has_explanation = False
+            
+            result["assumption_evaluation"] = {
+                "has_evaluation": has_evaluation,
+                "has_explanation": has_explanation,
+                "is_complete": has_evaluation and has_explanation,
+                "assumption_id": assumption_id,
+                "assumption_name": assumption_name
+            }
+            
             result["all_complete"] = (
                 result["self_assessment"]["is_complete"] and
                 result["teammate_assessments"]["is_complete"] and
                 result["project_assessments"]["is_complete"] and
                 result["leadership_assessment"]["is_complete"] and
-                result["objectives_assessment"]["is_complete"]
+                result["objectives_assessment"]["is_complete"] and
+                result["assumption_evaluation"]["is_complete"]
             )
             
             return result
@@ -960,6 +993,17 @@ class Neo4jRetriever:
                 }
             }
 
+        # Priority 6: Assumption evaluation
+        if not status["assumption_evaluation"]["is_complete"]:
+            return {
+                "next_state": "evaluate_assumption",
+                "reason": "assumption_evaluation_incomplete",
+                "details": {
+                    "assumption_id": status["assumption_evaluation"]["assumption_id"],
+                    "assumption_name": status["assumption_evaluation"]["assumption_name"]
+                }
+            }
+
         # All complete
         return {
             "next_state": "done",
@@ -1175,41 +1219,118 @@ class Neo4jRetriever:
             )
             return result.single()
 
-    def set_assumptions_assessment(
-        self, 
-        grading_person_index: str,
-        graded_person_index: str,
-        description: str,
+    def create_project_assumption(
+        self,
+        project_id: str,
+        assumption_id: str,
+        name: str,
+        description: str = ""
     ):
         """
-        Save assumptions assessment (no grade, only explanation)
-        Student evaluates how another student fulfills the project assumptions
+        Create a project assumption that team members will evaluate
         
         Args:
-            grading_person_index: Index number of the person grading
-            graded_person_index: Index number of the person being assessed
-            description: Assessment explanation (required, no numeric grade)
+            project_id: Project ID
+            assumption_id
+            name: Short name of the assumption(if we want more than one)
+            description: Detailed description of the assumption
+            
+        Returns:
+            Created assumption information
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (grader:Student {index: $grading_person_index}),
-                    (graded:Student {index: $graded_person_index})
-                CREATE (grader)-[:answered]->(a:Answer {
-                    question_type: "assumptions_assessment",
-                    explanation: $description
-                })-[:refers_to]->(graded)
-                RETURN grader.name as grader_name, 
-                    grader.surname as grader_surname,
-                    graded.name as graded_name,
-                    graded.surname as graded_surname,
-                    a.question_type,
-                    a.explanation
+                MATCH (project:Project {id: $project_id})
+                CREATE (project)-[:has_assumption]->(assumption:Assumption {
+                    id: $assumption_id,
+                    name: $name,
+                    description: $description
+                })
+                RETURN assumption.id as assumption_id,
+                       assumption.name as name,
+                       assumption.description as description,
+                       project.id as project_id,
+                       project.name as project_name
             """,
-                grading_person_index=grading_person_index,
-                graded_person_index=graded_person_index,
+                project_id=project_id,
+                assumption_id=assumption_id,
+                name=name,
                 description=description
             )
             return result.single()
+
+    def set_assumption_evaluation(
+        self,
+        student_index: str,
+        assumption_id: str,
+        fulfilled: bool,
+        explanation: str = ""
+    ):
+        """
+        Student evaluates whether a project assumption was fulfilled
+        
+        Args:
+            student_index: Index of the student evaluating
+            assumption_id: ID of the assumption being evaluated
+            fulfilled: True if assumption was fulfilled, False otherwise
+            explanation: Optional explanation for the evaluation
+            
+        Returns:
+            Evaluation information
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})
+                MATCH (assumption:Assumption {id: $assumption_id})
+                CREATE (student)-[:evaluated]->(eval:AssumptionEvaluation {
+                    fulfilled: $fulfilled,
+                    explanation: $explanation,
+                    timestamp: datetime()
+                })-[:refers_to]->(assumption)
+                RETURN student.name as student_name,
+                       student.surname as student_surname,
+                       student.index as student_index,
+                       assumption.id as assumption_id,
+                       assumption.name as assumption_name,
+                       eval.fulfilled as fulfilled,
+                       eval.explanation as explanation
+            """,
+                student_index=student_index,
+                assumption_id=assumption_id,
+                fulfilled=fulfilled,
+                explanation=explanation
+            )
+            return result.single()
+
+    def get_assumption_evaluations(self, assumption_id: str):
+        """
+        Get all evaluations for a specific assumption
+        
+        Args:
+            assumption_id: ID of the assumption
+            
+        Returns:
+            List of evaluations with student information
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (assumption:Assumption {id: $assumption_id})
+                OPTIONAL MATCH (student:Student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
+                RETURN student.index as student_index,
+                       student.name as student_name,
+                       student.surname as student_surname,
+                       eval.fulfilled as fulfilled,
+                       eval.explanation as explanation,
+                       eval.timestamp as timestamp
+                ORDER BY student.index
+            """, assumption_id=assumption_id)
+            
+            return [{"student_index": record["student_index"],
+                    "student_name": record["student_name"],
+                    "student_surname": record["student_surname"],
+                    "fulfilled": record["fulfilled"],
+                    "explanation": record["explanation"],
+                    "timestamp": record["timestamp"]} for record in result]
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL DATABASE-------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1290,11 +1411,14 @@ class Neo4jRetriever:
                             description=explanation
                         )
 
-                    elif grade_type == "assumptions_assessment" and graded_id:
-                        self.set_assumptions_assessment(
-                            grading_person_index=grader_id,
-                            graded_person_index=graded_id,
-                            description=explanation
+                    elif grade_type == "assumption_evaluation" and project_id:
+                        # New format: student evaluates project assumption
+                        # fulfilled is stored in grade field (0=False, 1=True)
+                        self.set_assumption_evaluation(
+                            student_index=grader_id,
+                            assumption_id=f"{project_id}_A1",  # Single assumption per project
+                            fulfilled=bool(int(grade)),
+                            explanation=explanation
                         )
 
                     count += 1
@@ -1324,6 +1448,7 @@ class Neo4jRetriever:
             with open(csv_path, 'r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 
+                projects_created = set()
                 for row in csv_reader:
                     # Create project (if doesn't exist)
                     session.run("""
@@ -1333,6 +1458,16 @@ class Neo4jRetriever:
                         project_id=row['project_id'],
                         project_name=row['project_name']
                     )
+                    
+                    # Create single assumption for project (if not already created)
+                    if row['project_id'] not in projects_created:
+                        self.create_project_assumption(
+                            project_id=row['project_id'],
+                            assumption_id=f"{row['project_id']}_A1",
+                            name="Główne założenia projektowe",
+                            description="Ocena ogólnego spełnienia założeń projektu"
+                        )
+                        projects_created.add(row['project_id'])
                     
                     # Create student
                     session.run("""
