@@ -118,12 +118,21 @@ def run_sonar_scanner() -> None:
         "-e", f"SONAR_HOST_URL={SONAR_HOST_URL}",
         "-e", f"SONAR_TOKEN={SONAR_TOKEN}",      # kluczowe: token przez zmienną środowiskową
         "-v", volume_arg,
+        "-u", "0",                               # Uruchom jako root, aby uniknąć problemów z uprawnieniami do plików
         "sonarsource/sonar-scanner-cli",
         f"-Dsonar.token={SONAR_TOKEN}"           # redundancja: token również jako parametr
         # "-X"  # opcjonalnie pełny debug skanera
     ]
 
-    subprocess.run(cmd, check=True)
+    try:
+        # Capture output to debug errors
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        print("[DEBUG] SonarScanner finished successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] SonarScanner failed with exit code {e.returncode}")
+        print(f"[ERROR] STDOUT:\n{e.stdout}")
+        print(f"[ERROR] STDERR:\n{e.stderr}")
+        raise e
 
 def sonar_server_ready(timeout_sec: int = 180) -> bool:
     """
