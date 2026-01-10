@@ -154,7 +154,7 @@ def remove_repo_dir(repo_dir):
 
     if os.path.exists(repo_dir):
         try:
-            shutil.rmtree(repo_dir, onexc=on_rm_error)
+            shutil.rmtree(repo_dir, onerror=on_rm_error)
         except Exception as e:
             print(f"Nie udało się całkowicie usunąć {repo_dir}: {e}")
 
@@ -336,3 +336,5 @@ def full_github_review():
 
     client = MongoClient(MONGO_URI)
     db_save(client,"GitHubDB","score", avg_scores)
+
+    remove_repo_dir(REPO_DIR)

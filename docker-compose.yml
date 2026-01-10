@@ -16,13 +16,13 @@ services:
       - GITHUB_URL=${GITHUB_URL}
       - SONAR_TOKEN=${SONAR_TOKEN}
       - WORKSPACE_DIR=/app/workspace
-      - HOST_WORKSPACE_DIR=zsd_workspace
+      - HOST_WORKSPACE_DIR=${HOST_WORKSPACE_DIR}
       - NEO4J_URI=neo4j://steamy-neo4j:7687
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=password
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock 
-      - zsd_workspace:/app/workspace        
+      - ./backend/workspace:/app/workspace        
     depends_on:
       - mongo
       - sonarqube
