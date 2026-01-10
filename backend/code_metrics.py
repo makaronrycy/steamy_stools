@@ -1,356 +1,338 @@
 import os
-import sys
-import stat
-import shutil
 import subprocess
 import time
 import requests
 import pandas as pd
-import csv
-import difflib
-from datetime import datetime
-
+import shutil
+import stat
 from pymongo import MongoClient
 from git import Repo
 from dotenv import load_dotenv
 from sklearn.preprocessing import MinMaxScaler
-
 from Detect_Useless_Commits import detect_useless_commits
 from regularity_metrics import evaluate_commit_regularities
 
-# Wczytaj zmienne środowiskowe (.env w katalogu backend)
 load_dotenv()
 
-# === ENV ===
+# Env variables
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OWNER = os.getenv("OWNER")
 REPO_NAME = os.getenv("REPO_NAME")
 GIT_BRANCH = os.getenv("MAIN_BRANCH", "main")
+GIT_BRANCH = os.getenv("MAIN_BRANCH", "main")
 
 MONGO_URI = os.getenv("MONGO_URI")
-
-WORKSPACE_DIR = os.getenv("WORKSPACE_DIR", os.path.join(os.getcwd(), "workspace"))
+WORKSPACE_DIR = os.path.join(os.getcwd(), "workspace")
 REPO_DIR = os.path.join(WORKSPACE_DIR, "repo")
-
-# Ścieżka do workspace na HOŚCIE (dla Docker-in-Docker wolumenów)
-# W kontenerze WORKSPACE_DIR="/app/workspace", ale SonarScanner potrzebuje ścieżki hosta
-HOST_WORKSPACE_DIR = os.getenv("HOST_WORKSPACE_DIR", WORKSPACE_DIR)
 
 GITHUB_URL = os.getenv("GITHUB_URL")
 
-# Dla kontenera skanera adres hosta Windows/WSL2:
 SONAR_HOST_URL = os.getenv("SONAR_HOST_URL", "http://host.docker.internal:9000")
 SONAR_API_URL = os.getenv("SONAR_API_URL", "http://localhost:9000")
 SONAR_TOKEN = os.getenv("SONAR_TOKEN")
+SONAR_PROJECT_KEY = os.getenv("SONAR_PROJECT_KEY")
+SONAR_PROJECT_NAME = os.getenv("SONAR_PROJECT_NAME", "Project")
 
-SONAR_PROJECT_KEY = os.getenv("SONAR_PROJECT_KEY", "Project")
-SONAR_PROJECT_NAME = os.getenv("SONAR_PROJECT_NAME", "unknown_project")
-PROJECT_ID = os.getenv("PROJECT_ID", "1")  # Default to 1
-csv_file_path = os.path.join(os.path.dirname(__file__), "data_no_grades.csv")
+PROJECT_START_TIME = pd.to_datetime(os.getenv("PROJECT_START_TIME")).tz_localize(None)
+WEEKS = int(os.getenv("WEEKS"))
 
-PROJECT_START_TIME = pd.to_datetime(os.getenv("PROJECT_START_TIME", "2024-01-01")).tz_localize(None)
-WEEKS = int(os.getenv("WEEKS", "12"))
 
-# === UTILS ===
-def safe_rmtree(path: str) -> None:
-    """
-    Bezpieczne usuwanie katalogu z fallbackiem dla Windows (readonly pliki).
-    W Pythonie 3.11 stosujemy onerror; onexc pojawił się dopiero w 3.12.
-    """
-    if not os.path.exists(path):
-        return
 
-    def _onerror(func, p, exc_info):
-        try:
-            os.chmod(p, stat.S_IWRITE)
-            func(p)
-        except Exception:
-            pass
 
-    shutil.rmtree(path, onerror=_onerror)
+def load_commits():
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
+    url = f"https://api.github.com/repos/{OWNER}/{REPO_NAME}/commits"
 
-def ensure_workspace() -> None:
-    os.makedirs(WORKSPACE_DIR, exist_ok=True)
+    all_commits = []
+    page = 1
+    per_page = 100
 
-def clone_repository() -> None:
-    """
-    Klonuje repo do WORKSPACE_DIR/repo; jeśli GITHUB_URL jest publiczne, token nie jest wymagany.
-    """
-    ensure_workspace()
-    safe_rmtree(REPO_DIR)
+    while True:
+        params = {"sha": GIT_BRANCH, "per_page": per_page, "page": page}
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        commits_page = response.json()
+        if not commits_page:
+            break
+        
+        for c in commits_page:
+            all_commits.append({
+                "sha": c["sha"],
+                "author": c["commit"]["author"]["name"],
+                "date": c["commit"]["author"]["date"]
+            })
+        
+        page += 1
 
-    url = GITHUB_URL or f"https://github.com/{OWNER}/{REPO_NAME}.git"
-    Repo.clone_from(url, REPO_DIR, branch=GIT_BRANCH)
+    df = pd.DataFrame(all_commits)
+    df_sorted = df.sort_values(by = 'date', ascending = True).reset_index(drop = True)
+    
+    # TEMP: Limit to last 3 commits for testing
+    df_sorted = df_sorted.tail(3).reset_index(drop=True)
 
-def write_sonar_properties() -> None:
-    """
-    Tworzy sonar-project.properties w WORKSPACE_DIR, wskazując katalog źródeł na 'repo'.
-    """
-    props_path = os.path.join(WORKSPACE_DIR, "sonar-project.properties")
-    with open(props_path, "w", encoding="utf-8") as f:
-        f.write(
-            f"sonar.projectKey={SONAR_PROJECT_KEY}\n"
-            f"sonar.projectName={SONAR_PROJECT_NAME}\n"
-            f"sonar.sources=repo\n"
-            f"sonar.sourceEncoding=UTF-8\n"
-        )
+    return df_sorted
 
-def run_sonar_scanner() -> None:
-    """
-    Uruchamia SonarScanner w kontenerze Docker.
-    Uwierzytelnienie: SONAR_TOKEN (nie SONAR_LOGIN) + redundancja -Dsonar.token.
-    """
-    # Log diagnostyczny przed uruchomieniem skanera
-    print(f"[DEBUG] Using SONAR_HOST_URL={SONAR_HOST_URL}, SONAR_TOKEN set={bool(SONAR_TOKEN)}")
+HOST_WORKSPACE_DIR = os.getenv("HOST_WORKSPACE_DIR", WORKSPACE_DIR)
 
-    if not SONAR_TOKEN:
-        raise RuntimeError("Brak SONAR_TOKEN w środowisku — wymagana autoryzacja do SonarQube.")
-
-    write_sonar_properties()
-
-    # Mapujemy HOST_WORKSPACE_DIR do /usr/src; skaner czyta /usr/src/sonar-project.properties
-    # Używamy HOST_WORKSPACE_DIR bo SonarScanner to osobny kontener Docker
-    volume_arg = f"{HOST_WORKSPACE_DIR}:/usr/src"
-
+def run_sonar_scanner():
+    print(f"[DEBUG] Starting SonarScanner via Docker. Volume: {HOST_WORKSPACE_DIR}:/usr/src, Network: zsd20_zsd-network")
     cmd = [
         "docker", "run", "--rm",
-        "--network", "zsd20_zsd-network",         # aby mieć dostęp do sieci docker-compose
+        "--network", "zsd20_zsd-network",
         "-e", f"SONAR_HOST_URL={SONAR_HOST_URL}",
-        "-e", f"SONAR_TOKEN={SONAR_TOKEN}",      # kluczowe: token przez zmienną środowiskową
-        "-v", volume_arg,
-        "-u", "0",                               # Uruchom jako root, aby uniknąć problemów z uprawnieniami do plików
+        "-e", f"SONAR_LOGIN={SONAR_TOKEN}",
+        "-e", f"SONAR_TOKEN={SONAR_TOKEN}", 
+        "-v", f"{HOST_WORKSPACE_DIR}:/usr/src",
         "sonarsource/sonar-scanner-cli",
-        f"-Dsonar.token={SONAR_TOKEN}"           # redundancja: token również jako parametr
-        # "-X"  # opcjonalnie pełny debug skanera
+        f"-Dsonar.token={SONAR_TOKEN}"
     ]
 
     try:
-        # Capture output to debug errors
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print("[DEBUG] SonarScanner finished successfully.")
+        # Capture output to diagnose the error (e.g. "sonar-project.properties not found")
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        print(result.stdout)
     except subprocess.CalledProcessError as e:
-        print(f"[ERROR] SonarScanner failed with exit code {e.returncode}")
+        print(f"[ERROR] SonarScanner failed. Exit Code: {e.returncode}")
         print(f"[ERROR] STDOUT:\n{e.stdout}")
         print(f"[ERROR] STDERR:\n{e.stderr}")
         raise e
 
-def sonar_server_ready(timeout_sec: int = 180) -> bool:
+
+def setup_workspace():
+    os.makedirs(WORKSPACE_DIR, exist_ok=True)
+
+def create_sonar_properties_file(sonar_project_commit):
+
+    file_path = os.path.join(WORKSPACE_DIR, "sonar-project.properties")
+    content = f"""# --- Automatycznie wygenerowany plik SonarQube ---
+    sonar.projectKey={sonar_project_commit}
+    sonar.projectName={sonar_project_commit}
+    sonar.sources=repo
+    sonar.sourceEncoding=UTF-8
+    sonar.host.url={SONAR_HOST_URL}
+    sonar.login={SONAR_TOKEN}
+    sonar.python.version=3
+
+    # Wykluczenia z analizy
+    sonar.exclusions=**/*.csv,**/venv/**,**/*.json,**/*.xml,**/*.yml,**/*.yaml,**/*.png,**/*.jpg,**/*.md,**/*.ico
     """
-    Czeka aż SonarQube przejdzie do statusu UP przez API /api/system/status.
-    """
-    url = f"{SONAR_API_URL.rstrip('/')}/api/system/status"
-    t0 = time.time()
-    while time.time() - t0 < timeout_sec:
-        try:
-            r = requests.get(url, timeout=5)
-            if r.ok:
-                js = r.json()
-                if js.get("status") == "UP":
-                    return True
-        except Exception:
-            pass
-        time.sleep(2)
-    return False
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
 
-def save_results_to_mongo(payload: dict) -> None:
-    """
-    Przykładowy zapis wyników do MongoDB według MONGO_URI.
-    """
-    if not MONGO_URI:
-        return
-    client = MongoClient(MONGO_URI)
-    db = client.get_database("GitHubDB")
-    col = db.get_collection("score")
-    col.insert_one(payload)
+    return file_path
 
-def get_git_commit_data(repo_dir: str) -> list[dict]:
-    """
-    Pobiera dane o commitach (autor, data) z repozytorium Git.
-    """
-    try:
-        git_cmd = ["git", "-C", repo_dir, "log", "--format=%an|%ad", "--date=short"]
-        output = subprocess.check_output(git_cmd, text=True, encoding="utf-8", errors="replace")
-        
-        lines = [line.strip() for line in output.splitlines() if line.strip()]
-        
-        data = []
-        for line in lines:
-            parts = line.split("|", 1)
-            if len(parts) == 2:
-                data.append({"author": parts[0], "date": parts[1]})
-        return data
-    except Exception as e:
-        print(f"[ERROR] Failed to get git commit data: {e}")
-        return []
+def clone_repository():
 
-def full_github_review() -> None:
-    """
-    Główne wejście – wywoływane przez backend:
-    - klonuje repo,
-    - czeka na SonarQube=UP,
-    - uruchamia skan SonarQube (Docker) z tokenem,
-    - (opcjonalnie) liczy metryki commitów i regularności,
-    - zapisuje wyniki do MongoDB.
-    """
-    # 1) Klon repo
-    clone_repository()
-
-    # 2) Poczekaj na SonarQube=UP, inaczej skaner może wyjść z błędem
-    if not sonar_server_ready(timeout_sec=180):
-        raise RuntimeError("SonarQube nie jest w stanie UP – sprawdź http://localhost:9000 i token.")
-
-    # 3) Uruchom skaner (z poprawnym tokenem)
-    run_sonar_scanner()
-
-    # 4) Metryki commitów i regularności
-    try:
-        useless = detect_useless_commits(REPO_DIR)  # lista słowników
-    except Exception:
-        useless = []
-
-    try:
-        # Load CSV and filter students by PROJECT_ID
-        students_map = {}  # Map Name/Surname -> Index
-        project_students = []
-        if os.path.exists(csv_file_path):
-            with open(csv_file_path, mode='r', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    if row['project_id'] == PROJECT_ID:
-                        # Create mapping keys from name and surname
-                        full_name = f"{row['name']} {row['surname']}"
-                        students_map[full_name.lower()] = row
-                        students_map[row['name'].lower()] = row
-                        students_map[row['surname'].lower()] = row
-                        # Save student info for result template
-                        project_students.append(row)
-        else:
-            print(f"[WARNING] CSV file not found at {csv_file_path}")
-
-        commit_history = get_git_commit_data(REPO_DIR)
-        
-        # DataFrame conversion
-        all_commits_df = pd.DataFrame(commit_history)
-        if all_commits_df.empty:
-            print("[INFO] No commits found.")
-            dfs_names = []
-        else:
-            # Map git authors to students
-            all_commits_df['student_index'] = None
-            all_commits_df['student_name'] = None
-
-            for idx, row in all_commits_df.iterrows():
-                author_lower = row['author'].lower()
-                # Try exact match first
-                matched_student = None
-                
-                # Check against map
-                for key_name, student_data in students_map.items():
-                    if key_name in author_lower:
-                        matched_student = student_data
-                        break
-                
-                # Fallback: difflib for close matches if needed (optional, keeping simple for now)
-                
-                if matched_student:
-                    all_commits_df.at[idx, 'student_index'] = matched_student['index']
-                    all_commits_df.at[idx, 'student_name'] = f"{matched_student['name']} {matched_student['surname']}"
-                else:
-                    all_commits_df.at[idx, 'student_name'] = row['author'] # Keep original if no match
-
-            # Group by student_index if available, otherwise fallback to author
-            # Actually, we want to evaluate regularities for ALL project students
-            dfs_names = []
-            
-            for student in project_students:
-                s_index = student['index']
-                # Filter commits for this student
-                student_commits = all_commits_df[all_commits_df['student_index'] == s_index]
-                if student_commits.empty:
-                    # Also try matching by author name if index wasn't mapped (fallback)
-                   full_name_lower = f"{student['name']} {student['surname']}".lower()
-                   student_commits = all_commits_df[all_commits_df['author'].str.lower().str.contains(student['name'].lower()) | 
-                                                    all_commits_df['author'].str.lower().str.contains(student['surname'].lower())]
-                
-                # If still empty, create empty DF but with 'date' column for the function
-                if student_commits.empty:
-                     student_commits = pd.DataFrame(columns=['date', 'author', 'student_index', 'student_name'])
-
-                dfs_names.append(student_commits)
-
-        # Prepare unique names list corresponding to project_students
-        unique_names = [f"{s['name']} {s['surname']} ({s['index']})" for s in project_students]
-        
-        # If no CSV filtering happened (e.g. file missing), fallback to old logic
-        if not project_students:
-             unique_names = all_commits_df['author'].unique() if not all_commits_df.empty else []
-             dfs_names = [all_commits_df[all_commits_df['author'] == author] for author in unique_names]
-
-        # Calculate regularity
-        reg_df = evaluate_commit_regularities(dfs_names, unique_names, PROJECT_START_TIME, WEEKS)
-        
-        # Add index to results if possible
-        if not reg_df.empty and project_students:
-             # Assuming order is preserved (zip in evaluate_commit_regularities)
-             reg_df['student_index'] = [s['index'] for s in project_students]
-
-        # Konwersja do dict (records)
-        if not reg_df.empty:
-            regularity_data = reg_df.to_dict(orient="records")
-                
-    except Exception as e:
-        print(f"[ERROR] Regularity metrics failed: {e}")
-        regularity_data = []
-
-    # Oblicz średnią ocenę (GitHub Score)
-    regularity_score = 0.0
-    if regularity_data:
-        scores = [d.get("regularity_score", 0) for d in regularity_data]
-        if scores:
-            regularity_score = sum(scores) / len(scores)
-
-    # Oblicz ocenę za jakość commitów (Commit Score)
-    # Wzór: 5.0 - (3.0 * (useless / total))
-    # 0% useless -> 5.0
-    # 100% useless -> 2.0
-    total_commits_count = len(all_commits_df) if 'all_commits_df' in locals() and not all_commits_df.empty else 0
+    if os.path.exists(REPO_DIR):
+        return Repo(REPO_DIR)
     
-    if total_commits_count > 0:
-        useless_ratio = len(useless) / total_commits_count
-        commit_score = 5.0 - (3.0 * useless_ratio)
-        if commit_score < 2.0:
-            commit_score = 2.0
-    else:
-        commit_score = 2.0 # Brak commitów to ocena niedostateczna
-        
-    # Średnia ważona
-    # 0.65 * regularity + 0.35 * commit
-    weighted_score = (0.65 * regularity_score) + (0.35 * commit_score)
-    
-    def round_to_quarter(x):
-        return round(x * 4) / 4
-        
-    final_score = round_to_quarter(weighted_score)
+    repo = Repo.clone_from(GITHUB_URL, REPO_DIR)
+    return repo
 
-    # 5) Przykładowy payload do bazy
-    payload = {
-        "repo": f"{OWNER}/{REPO_NAME}",
-        "branch": GIT_BRANCH,
-        "timestamp": pd.Timestamp.utcnow().to_pydatetime(),
-        "useless_commits_found": len(useless),
-        "total_commits": total_commits_count,
-        "regularity_metrics": regularity_data,
-        "scores": {
-            "regularity_score_avg": round(regularity_score, 2),
-            "commit_score_avg": round(commit_score, 2),
-            "final_score": final_score
-        },
-        "details": {
-            "sonar_host": SONAR_HOST_URL,
-            "project_key": SONAR_PROJECT_KEY,
-            "project_name": SONAR_PROJECT_NAME,
-            "weeks": WEEKS,
-            "project_start": str(PROJECT_START_TIME.date()),
-        },
+def get_sonar_metrics(project_key):
+
+
+    url = f"{SONAR_API_URL}/api/measures/component"
+    params = {
+        "component": project_key,
+        "metricKeys": "bugs,vulnerabilities,code_smells,duplicated_lines_density"
     }
-    save_results_to_mongo(payload)
+
+    response = requests.get(url, auth=(SONAR_TOKEN, ""), params=params)
+    response.raise_for_status()
+    data = response.json()
+
+    measures = {m["metric"]: m["value"] for m in data["component"]["measures"]}
+    return measures
+
+def remove_repo_dir(repo_dir):
+
+    def on_rm_error(func, path, exc_info):
+        os.chmod(path, stat.S_IWRITE)
+        os.remove(path)
+
+    if os.path.exists(repo_dir):
+        try:
+            shutil.rmtree(repo_dir, onexc=on_rm_error)
+        except Exception as e:
+            print(f"Nie udało się całkowicie usunąć {repo_dir}: {e}")
+
+def wait_for_sonar_analysis(project_key, timeout=180):
+    
+    start = time.time()
+    
+    while True:
+        url = f"{SONAR_API_URL}/api/ce/component?component={project_key}"
+        r = requests.get(url, auth=(SONAR_TOKEN, ""))
+        r.raise_for_status()
+        data = r.json()
+
+        current_task = data.get("current")
+        if current_task and current_task.get("status") == "SUCCESS":
+            return 
+
+        queue_tasks = data.get("queue", [])
+        for task in queue_tasks:
+            task_id = task["id"]
+            status_url = f"{SONAR_API_URL}/api/ce/task?id={task_id}"
+            r_status = requests.get(status_url, auth=(SONAR_TOKEN, ""))
+            r_status.raise_for_status()
+            status = r_status.json()["task"]["status"]
+            if status == "SUCCESS":
+                return
+
+        if time.time() - start > timeout:
+            raise TimeoutError("Analiza SonarQube nie zakończyła się w czasie")
+
+        time.sleep(2)
+
+def delete_sonar_project(project_key):
+
+    url = f"{SONAR_API_URL}/api/projects/delete"
+    response = requests.post(url, auth=(SONAR_TOKEN, ""), params={"project": project_key})
+    if response.status_code == 204:
+        print(f"Projekt '{project_key}' został usunięty.")
+    else:
+        print(f"Nie udało się usunąć projektu '{project_key}'. Status: {response.status_code}, odpowiedź: {response.text}")
+    
+def reset_to_latest_and_detect(repo):
+    repo.git.checkout(GIT_BRANCH)
+    repo.remotes.origin.pull()
+    
+    # detect_useless_commits now accepts repo_path 
+    return detect_useless_commits(REPO_DIR)
+    
+def db_save(client, db_name:str, table_name:str, data):
+    github_db = client[db_name]
+    db = github_db[table_name]
+
+    db.delete_many({})
+
+    if not data.empty:
+        db.insert_many(data.to_dict("records"))
+
+
+def date_preprocessing(data):
+
+    unique_names = data["author"].unique()
+    dfs =[]
+    for name in unique_names:
+        df = data[data['author'] == name].sort_values(by = 'date', ascending = True).reset_index(drop = True)
+        df['date'] = pd.to_datetime(df['date'], errors='coerce').dt.tz_localize(None)
+        dfs.append(df)
+
+    return dfs, unique_names
+
+
+def metrics_processing(metrics_df):
+   
+   cols = ['bugs','vulnerabilities', 'code_smells', 'duplicated_lines_density']
+
+   metrics_df['date'] = pd.to_datetime(metrics_df['date'], errors='coerce').dt.tz_localize(None)
+   
+   orig = metrics_df[cols].copy()
+
+   metrics_df[cols] = metrics_df[cols].apply(pd.to_numeric, errors='coerce')
+
+   metrics_df[cols] = metrics_df[cols].diff()
+   metrics_df[cols] = metrics_df[cols].fillna(orig)
+   
+def normalize_metrics(df):
+    cols = ['bugs','vulnerabilities','code_smells','duplicated_lines_density']
+    scaler = MinMaxScaler()
+    df[cols] = scaler.fit_transform(df[cols])
+    return df
+
+def compute_commit_score(df):
+    weights = {
+        'bugs': 0.4,
+        'vulnerabilities': 0.3,
+        'code_smells': 0.2,
+        'duplicated_lines_density': 0.1
+    }
+
+    df['commit_score'] = (
+        df['bugs'] * weights['bugs'] +
+        df['vulnerabilities'] * weights['vulnerabilities'] +
+        df['code_smells'] * weights['code_smells'] +
+        df['duplicated_lines_density'] * weights['duplicated_lines_density']
+    )
+
+      # Skala 0–1 (im wyższa, tym lepiej)
+    df['commit_score'] = 1 - (df['commit_score'] - df['commit_score'].min()) / (df['commit_score'].max() - df['commit_score'].min() + 1e-9)
+    df['commit_score'] = 2+df['commit_score'] * (5-2) 
+    
+    return df
+
+def evaluate_commits(metrics_df, useless_commits):
+    metrics_df = normalize_metrics(metrics_df)
+    metrics_df = compute_commit_score(metrics_df)
+    return metrics_df
+
+def full_github_review():
+
+    remove_repo_dir(REPO_DIR)
+    
+    commits = load_commits()
+    
+    setup_workspace()
+    
+    repo = clone_repository()
+    
+    commit_key = SONAR_PROJECT_KEY
+    
+    useless_commits = reset_to_latest_and_detect(repo)
+    
+    for useless_commit in useless_commits:
+        
+        commits = commits[commits['sha'] != useless_commit['sha']]
+    
+    commits.reset_index(drop = True, inplace = True)
+    commits_len = len(commits)
+    print("/n",commits_len, "------------------")
+    create_sonar_properties_file(commit_key)
+    
+    
+    oldest_commit = commits.iloc[0]["sha"]
+    all_metrics = []
+    for i in range(commits_len):
+
+        commit = commits.iloc[i]["sha"]
+        repo.git.checkout(commit)
+
+        run_sonar_scanner()
+        wait_for_sonar_analysis(commit_key)
+        metrics = get_sonar_metrics(commit_key)
+        metrics["sha"] = commits.iloc[i]["sha"]
+        metrics["author"] = commits.iloc[i]["author"]
+        metrics["date"] = commits.iloc[i]["date"]
+        
+        delete_sonar_project(commit_key)
+        all_metrics.append(metrics)
+        
+
+    dfs_names, unique_names = date_preprocessing(commits)
+
+    metrics_df = pd.DataFrame(all_metrics)
+    metrics_df['date'] = pd.to_datetime(metrics_df['date'], errors='coerce').dt.tz_localize(None)
+    metrics_df.sort_values(by = 'date', ascending = True, inplace = True)
+
+    
+
+    metrics_processing(metrics_df)
+
+    regularity_df = evaluate_commit_regularities(dfs_names.copy(), unique_names.copy(), PROJECT_START_TIME, WEEKS)
+
+    metrics_scored_df = evaluate_commits(metrics_df.copy(), useless_commits)
+    avg_scores_raw = metrics_scored_df.groupby('author')['commit_score'].mean().reset_index()
+    avg_scores_raw['commit_score'] = (avg_scores_raw['commit_score'] / 0.25).round() * 0.25
+    merged = pd.merge(regularity_df, avg_scores_raw, on="author", how="outer")
+
+    merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
+    merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
+    avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
+
+
+    client = MongoClient(MONGO_URI)
+    db_save(client,"GitHubDB","score", avg_scores)

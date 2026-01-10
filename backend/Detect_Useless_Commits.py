@@ -14,6 +14,7 @@ Funkcja do analizy repozytorium Git w celu wykrycia commitów o małej wartości
 import subprocess
 import re
 import os
+
 # ==== KONFIGURACJA ====
 SMALL_CHANGE_THRESHOLD = int(os.getenv("SMALL_CHANGE_THRESHOLD", "3"))  # total lines changed (added + removed)
 COMMENT_REGEX = re.compile(r'^[\+\-]\s*(#|//|/\*|\*|<!--|-->)')
@@ -22,10 +23,11 @@ BINARY_EXTENSIONS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", 
 # ========================
 
 
-def git(cmd):
-    """Uruchamia komendę git i zwraca wynik jako string."""
+def git(cmd, cwd=None):
+    """Uruchamia komendę git w katalogu cwd i zwraca wynik jako string."""
     return subprocess.check_output(
         ["git"] + cmd,
+        cwd=cwd,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -33,23 +35,24 @@ def git(cmd):
     )
 
 
-def is_merge_commit(commit):
-    parents = git(["rev-list", "--parents", "-n", "1", commit]).strip().split()
+def is_merge_commit(commit, repo_path):
+    parents = git(["rev-list", "--parents", "-n", "1", commit], cwd=repo_path).strip().split()
     return len(parents) > 2
 
 
-def is_whitespace_only(commit):
+def is_whitespace_only(commit, repo_path):
     result = subprocess.run(
         ["git", "diff", "-w", "--quiet", f"{commit}^!", "--no-color"],
+        cwd=repo_path,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     return result.returncode == 0
 
 
-def count_lines_changed(commit):
+def count_lines_changed(commit, repo_path):
     try:
-        out = git(["diff-tree", "--no-commit-id", "--numstat", "-r", commit])
+        out = git(["diff-tree", "--no-commit-id", "--numstat", "-r", commit], cwd=repo_path)
     except subprocess.CalledProcessError:
         return 0
     total = 0
@@ -60,17 +63,17 @@ def count_lines_changed(commit):
     return total
 
 
-def is_comment_only(commit):
-    diff = git(["show", commit, "--unified=0", "--no-color"])
+def is_comment_only(commit, repo_path):
+    diff = git(["show", commit, "--unified=0", "--no-color"], cwd=repo_path)
     lines = [l for l in diff.splitlines() if l.startswith(('+', '-'))]
     if not lines:
         return True
     return all(COMMENT_REGEX.match(l) or l.strip() in ('+', '-') for l in lines)
 
 
-def is_binary_only(commit):
+def is_binary_only(commit, repo_path):
     try:
-        files = git(["diff-tree", "--no-commit-id", "--name-only", "-r", commit]).splitlines()
+        files = git(["diff-tree", "--no-commit-id", "--name-only", "-r", commit], cwd=repo_path).splitlines()
     except subprocess.CalledProcessError:
         return False
     if not files:
@@ -78,42 +81,56 @@ def is_binary_only(commit):
     return all(f.lower().endswith(BINARY_EXTENSIONS) for f in files)
 
 
-def get_commit_info(commit):
-    info = git(["show", "-s", "--format=%an|%ad", "--date=short", commit]).strip()
+def get_commit_info(commit, repo_path):
+    info = git(["show", "-s", "--format=%an|%ad", "--date=short", commit], cwd=repo_path).strip()
     author, date = info.split("|", 1)
     return author, date
 
 
-def detect_useless_commits():
+def detect_useless_commits(repo_path):
     """
-    Przeskanuj wszystkie commity i zwróć listę słowników:
+    Przeskanuj wszystkie commity w repo_path i zwróć listę słowników:
     [
       {"sha": "abcd123", "author": "Jan", "problem": "WHITESPACE_ONLY"},
       {"sha": "efgh456", "author": "Anna", "problem": "TOO_LITTLE_CHANGES"},
     ]
     """
-    commits = git(["rev-list", "--all"]).splitlines()
+    if not os.path.exists(repo_path):
+        print(f"[ERROR] Repo path does not exist: {repo_path}")
+        return []
+
+    try:
+        commits = git(["rev-list", "--all"], cwd=repo_path).splitlines()
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Failed to list commits in {repo_path}: {e}")
+        return []
+
     results = []
 
     for sha in commits:
-        msg = git(["log", "-1", "--pretty=%s", sha]).strip()
-        author, _ = get_commit_info(sha)
+        try:
+            msg = git(["log", "-1", "--pretty=%s", sha], cwd=repo_path).strip()
+            author, _ = get_commit_info(sha, repo_path)
 
-        # Pomiń merge lub PR merge
-        if is_merge_commit(sha) or MERGE_PR_REGEX.match(msg):
+            # Pomiń merge lub PR merge
+            if is_merge_commit(sha, repo_path) or MERGE_PR_REGEX.match(msg):
+                continue
+
+            # Pomiń binarne commity
+            if is_binary_only(sha, repo_path):
+                continue
+
+            lines_changed = count_lines_changed(sha, repo_path)
+
+            if is_whitespace_only(sha, repo_path):
+                results.append({"sha": sha, "author": author, "problem": "WHITESPACE_ONLY"})
+            elif is_comment_only(sha, repo_path):
+                results.append({"sha": sha, "author": author, "problem": "COMMENT_ONLY"})
+            elif lines_changed < SMALL_CHANGE_THRESHOLD:
+                results.append({"sha": sha, "author": author, "problem": "TOO_LITTLE_CHANGES"})
+                
+        except Exception as e:
+            print(f"[WARNING] Error analyzing commit {sha}: {e}")
             continue
-
-        # Pomiń binarne commity
-        if is_binary_only(sha):
-            continue
-
-        lines_changed = count_lines_changed(sha)
-
-        if is_whitespace_only(sha):
-            results.append({"sha": sha, "author": author, "problem": "WHITESPACE_ONLY"})
-        elif is_comment_only(sha):
-            results.append({"sha": sha, "author": author, "problem": "COMMENT_ONLY"})
-        elif lines_changed < SMALL_CHANGE_THRESHOLD:
-            results.append({"sha": sha, "author": author, "problem": "TOO_LITTLE_CHANGES"})
 
     return results
