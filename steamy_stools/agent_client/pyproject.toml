@@ -11,13 +11,11 @@ dependencies = [
     "fastmcp",
     'openai-agents',
     'tiktoken',
-    'sanic',
+    'fastapi',
+    'uvicorn',
     'langfuse',
     'pydantic-ai[logfire]',
-    'nest_asyncio',
     "neo4j",
-    "sanic-ext"
-
 ]
 
 

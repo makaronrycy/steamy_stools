@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Backend API + WebSocket Gateway
   backend:
     build: 
       context: ./backend
@@ -14,19 +13,23 @@ services:
       - SONAR_API_URL=http://sonarqube:9000
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_URL=${GITHUB_URL}
       - SONAR_TOKEN=${SONAR_TOKEN}
-      # Overrides for Docker-in-Docker (Sibling containers)
       - WORKSPACE_DIR=/app/workspace
+      - HOST_WORKSPACE_DIR=${PWD}/backend/workspace
+      - NEO4J_URI=neo4j://steamy-neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock # Allow spawning sibling containers (SonarScanner)
-      - ./backend/workspace:/app/workspace        # Persist cloned repos
+      - /var/run/docker.sock:/var/run/docker.sock 
+      - ./backend/workspace:/app/workspace        
     depends_on:
       - mongo
       - sonarqube
+      - steamy-neo4j
     networks:
       - zsd-network
 
-  # Frontend Web App
   frontend:
     build:
       context: ./frontend
@@ -38,7 +41,6 @@ services:
     networks:
       - zsd-network
 
-  # Database for analysis results
   mongo:
     image: mongo:latest
     container_name: zsd-mongo
@@ -49,7 +51,6 @@ services:
     networks:
       - zsd-network
 
-  # SonarQube for code analysis
   sonarqube:
     image: sonarqube:community
     container_name: zsd-sonarqube
@@ -64,11 +65,65 @@ services:
     networks:
       - zsd-network
 
+  # === Merged from steamy_stools ===
+  steamy-neo4j:
+    image: neo4j:5.15-community
+    container_name: steamy-neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_server_memory_pagecache_size=512M
+      - NEO4J_server_memory_heap_max__size=512M
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    networks:
+      - zsd-network
+  
+  steamy-agent-server:
+    build:
+      context: ./steamy_stools/agent_server
+      dockerfile: dockerfile
+    container_name: steamy-agent-server
+    ports:
+      - "10000:10000"
+    environment:
+      - NEO4J_URI=neo4j://steamy-neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=password
+      - WORKERS=1
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - steamy-neo4j
+    networks:
+      - zsd-network
+    restart: unless-stopped
+
+  steamy-agent-client:
+    build:
+      context: ./steamy_stools/agent_client
+      dockerfile: dockerfile
+    container_name: steamy-agent-client
+    ports:
+      - "3000:3000"
+    environment:
+      - MCP_SERVER_URL=http://steamy-agent-server:10000
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - steamy-agent-server
+    networks:
+      - zsd-network
+    restart: unless-stopped
+
 volumes:
   mongo-data:
   sonar-data:
   sonar-extensions:
   sonar-logs:
+  neo4j_data:
+  neo4j_logs:
 
 networks:
   zsd-network:

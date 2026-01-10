@@ -67,4 +67,16 @@ export const api = {
       throw error;
     }
   },
+
+  async initDatabase(): Promise<{ status: string; message: string }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/neo4j/init`
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Database init error:", error);
+      throw error;
+    }
+  },
 };

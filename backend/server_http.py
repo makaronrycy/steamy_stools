@@ -5,6 +5,7 @@ from fastapi.encoders import jsonable_encoder
 from contextlib import asynccontextmanager
 from typing import List, Optional, Any, Dict
 import os
+import subprocess
 from fastmcp import Client  # klient FastMCP
 from openai import OpenAI
 
@@ -169,6 +170,48 @@ async def github_analysis_status():
         "status": "not_implemented",
         "message": "Endpoint do sprawdzania statusu - do zaimplementowania z użyciem Redis/database."
     }
+
+@app.post("/api/neo4j/init")
+async def init_neo4j_database():
+    """
+    Inicjalizuje bazę danych Neo4j uruchamiając skrypt w kontenerze steamy-agent-server.
+    """
+    try:
+        # 1. Pobierz IP kontenera steamy-neo4j (rozwiązanie problemu DNS)
+        try:
+            inspect_cmd = ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", "steamy-neo4j"]
+            neo4j_ip = subprocess.check_output(inspect_cmd, text=True).strip()
+        except Exception:
+            neo4j_ip = "steamy-neo4j" # Fallback to hostname
+        
+        # 2. Uruchom skrypt z odpowiednim URI
+        # docker exec -e NEO4J_URI=neo4j://<IP>:7687 steamy-agent-server python -m src.neo4j_retriever.__init__
+        
+        cmd = [
+            "docker", "exec", 
+            "-e", f"NEO4J_URI=neo4j://{neo4j_ip}:7687", 
+            "steamy-agent-server", 
+            "python", "-m", "src.neo4j_retriever.__init__"
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            return {
+                "status": "success",
+                "message": f"Baza danych zainicjalizowana pomyślnie. (IP: {neo4j_ip})\nLogi:\n{result.stdout}"
+            }
+        else:
+            return {
+                "status": "error",
+                "message": f"Błąd inicjalizacji bazy (IP: {neo4j_ip}):\n{result.stderr}"
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Wystąpił wyjątek podczas inicjalizacji DB: {str(e)}"
+        }
 
 if __name__ == "__main__":
     import uvicorn

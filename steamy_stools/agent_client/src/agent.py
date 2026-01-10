@@ -8,8 +8,6 @@ from langfuse import Langfuse
 from .states import State
 import os
 import logfire
-import nest_asyncio
-nest_asyncio.apply()
 logfire.configure(
     service_name="Gorące Krzesła",
     send_to_logfire=False,
@@ -29,6 +27,7 @@ class AgentWorkflow:
         self.model = "gpt-4o-mini"
         self.history = list(reversed(history))
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
+        langfuse = None
         try:
             langfuse = Langfuse(
                 secret_key=os.environ['LANGFUSE_SECRET_KEY'],
@@ -37,8 +36,18 @@ class AgentWorkflow:
                 timeout=60,
             )
         except Exception as e:
-            logging.error(f"Failed to initialize Langfuse: {e}")
-        with langfuse.start_as_current_span(name ="AgentWorkflow Run") as span:
+            logging.warning(f"Langfuse disabled (missing config): {e}")
+        
+        # Use context manager if langfuse is available, otherwise run without tracing
+        if langfuse:
+            with langfuse.start_as_current_span(name="AgentWorkflow Run") as span:
+                async for item in self._run_workflow(langfuse):
+                    yield item
+        else:
+            async for item in self._run_workflow(None):
+                yield item
+    
+    async def _run_workflow(self, langfuse) -> AsyncGenerator[Dict[str, Any], None]:
             yield {"state": "STARTING"}
             if self.state.name == "initial" or self.state.name =="done" or self.state.verification_prompt_name is None:
                 agent = await self.prepare_question_agent(self.state.prompt_name)
@@ -48,10 +57,11 @@ class AgentWorkflow:
             runner =  Runner()
             ls = self.last_state if isinstance(self.last_state, dict) else {"question": str(self.last_state or "")}
             prompt = f"Historia:{self.history}\nOdpowiedź użytkownika: {self.user_answer}"
-            langfuse.update_current_trace(
-                user_id= str(self.user_id),
-                input=prompt
-            )
+            if langfuse:
+                langfuse.update_current_trace(
+                    user_id= str(self.user_id),
+                    input=prompt
+                )
             result = runner.run_streamed(starting_agent=agent, input=prompt)
 
             try:
@@ -90,12 +100,13 @@ class AgentWorkflow:
                  yield {"state": "ERROR", "error": str(e)}
 
             try:
-                langfuse.update_current_trace(
-                    output ={
-                        "final_answer": result.final_output,
-                        "state": self.state.name,
-                    }
-                )
+                if langfuse:
+                    langfuse.update_current_trace(
+                        output ={
+                            "final_answer": result.final_output,
+                            "state": self.state.name,
+                        }
+                    )
             except Exception as e:
                 logging.error(f"Failed to update Langfuse trace: {e}")
             yield {"state": "DONE"}

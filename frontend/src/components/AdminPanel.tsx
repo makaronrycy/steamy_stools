@@ -16,12 +16,12 @@ export const AdminPanel: React.FC = () => {
       const result = await api.analyzeGithub();
       setMessage(result.message || "Analiza została uruchomiona pomyślnie!");
       setMessageType("success");
-      
+
       console.log("GitHub Analysis Result:", result);
     } catch (error: any) {
       setMessage(
-        error.response?.data?.message || 
-        error.message || 
+        error.response?.data?.message ||
+        error.message ||
         "Wystąpił błąd podczas uruchamiania analizy"
       );
       setMessageType("error");
@@ -31,27 +31,40 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const checkStatus = async () => {
+  const handleInitDatabase = async () => {
+    setIsAnalyzing(true);
+    setMessage("Inicjalizowanie bazy danych...");
+    setMessageType("info");
+
     try {
-      const status = await api.getGithubAnalysisStatus();
-      setMessage(status.message || "Status sprawdzony");
-      setMessageType("info");
-      console.log("GitHub Analysis Status:", status);
+      const result = await api.initDatabase();
+
+      if (result.status === "success") {
+        setMessage(result.message || "Baza danych zainicjalizowana pomyślnie!");
+        setMessageType("success");
+      } else {
+        setMessage(result.message || "Błąd podczas inicjalizacji bazy.");
+        setMessageType("error");
+      }
+
+      console.log("DB Init Result:", result);
     } catch (error: any) {
-      setMessage("Nie można sprawdzić statusu analizy");
+      setMessage("Nie udało się zainicjalizować bazy danych.");
       setMessageType("error");
-      console.error("Status Check Error:", error);
+      console.error("DB Init Error:", error);
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
   return (
     <div className="admin-panel">
       <h2>Panel Administratora</h2>
-      
+
       <div className="admin-section">
         <h3>🔍 Analiza GitHub</h3>
         <p>Uruchom pełną analizę repozytorium GitHub z metrykami kodu i regularności commitów.</p>
-        
+
         <div className="button-group">
           <button
             onClick={handleGithubAnalysis}
@@ -60,13 +73,14 @@ export const AdminPanel: React.FC = () => {
           >
             {isAnalyzing ? "⏳ Analizuję..." : "🚀 Uruchom analizę GitHub"}
           </button>
-          
+
           <button
-            onClick={checkStatus}
+            onClick={handleInitDatabase}
             disabled={isAnalyzing}
             className="btn-secondary"
+            style={{ marginLeft: "10px", backgroundColor: "#2ecc71" }}
           >
-            📊 Sprawdź status
+            🗄️ Inicjalizuj Bazę Danych
           </button>
         </div>
 
