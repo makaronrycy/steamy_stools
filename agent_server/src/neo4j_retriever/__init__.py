@@ -762,9 +762,13 @@ class Neo4jRetriever:
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
                 WHERE assumption.system_accepted = false
                 OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
-                RETURN assumption.description as assumption_description,
+                RETURN elementId(assumption) as assumption_id,
+                       assumption.description as description,
+                       assumption.system_accepted as system_accepted,
+                       project.id as project_id,
+                       project.name as project_name,
                        eval.explanation as explanation
-                ORDER BY assumption.description
+                ORDER BY elementId(assumption)
             """, name=name)
             
             all_rejected_assumptions = []
@@ -772,22 +776,30 @@ class Neo4jRetriever:
             completed_assumptions = 0
             
             for record in assumptions_result:
-                assumption_desc = record["assumption_description"]
+                assumption_id = record["assumption_id"]
+                description = record["description"]
+                system_accepted = record["system_accepted"]
+                project_id = record["project_id"]
+                project_name = record["project_name"]
                 explanation = record["explanation"]
+                has_evaluation = explanation is not None
                 has_explanation = explanation is not None and str(explanation).strip() != ""
                 
-                all_rejected_assumptions.append({
-                    "assumption_description": assumption_desc,
+                assumption_info = {
+                    "assumption_id": assumption_id,
+                    "description": description,
+                    "system_accepted": system_accepted,
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "has_evaluation": has_evaluation,
                     "has_explanation": has_explanation
-                })
+                }
+                all_rejected_assumptions.append(assumption_info)
                 
-                if has_explanation:
+                if has_evaluation and has_explanation:
                     completed_assumptions += 1
                 else:
-                    incomplete_assumptions.append({
-                        "assumption_description": assumption_desc,
-                        "has_explanation": has_explanation
-                    })
+                    incomplete_assumptions.append(assumption_info)
             
             total_rejected = len(all_rejected_assumptions)
             
@@ -895,7 +907,8 @@ class Neo4jRetriever:
         return self.create_conversation_session(student_index)
     def get_unevaluated_assumptions(self, student_index: str):
         """
-        Get assumptions the student hasn't evaluated yet (from their project)
+        Get assumptions the student hasn't evaluated yet (from their project).
+        Only returns assumptions where system_accepted = false (requiring student evaluation).
 
         Args:
             student_index: Student index
@@ -907,9 +920,9 @@ class Neo4jRetriever:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
-                WHERE NOT EXISTS {
-                    MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
-                }
+                OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
+                WITH student, project, assumption, eval
+                WHERE eval IS NULL
                 RETURN elementId(assumption) as assumption_id,
                        assumption.description as description,
                        assumption.system_accepted as system_accepted,
@@ -1250,7 +1263,7 @@ class Neo4jRetriever:
                 "completion_summary": status
             }
         }
-    def get_student_project_id(self, name: str):
+    def get_student_project_id(self, index: str):
         """
         Get the project ID the student belongs to
 
@@ -1262,9 +1275,9 @@ class Neo4jRetriever:
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
                 RETURN project.id as project_id
-            """, name=name)
+            """, index=index)
 
             record = result.single()
             if record:
@@ -1291,14 +1304,15 @@ class Neo4jRetriever:
 
         Args:
             student_index: Student index
-            assumption_id: Assumption ID
+            assumption_id: Element ID of the assumption (from elementId())
 
         Returns:
             Evaluation dict or None if not evaluated
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (student:Student {index: $student_index})-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption:Assumption {id: $assumption_id})
+                MATCH (student:Student {index: $student_index})-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption:Assumption)
+                WHERE elementId(assumption) = $assumption_id
                 RETURN eval.fulfilled as fulfilled,
                        eval.explanation as explanation,
                        coalesce(eval.followup_done, false) as followup_done
