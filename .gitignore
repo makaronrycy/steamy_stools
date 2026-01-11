@@ -10,3 +10,5 @@ github_review/README.md
 github_review/requirements.txt
 backend/data/projects.json
 backend/workspace/
+backend/__pycache__/
+backend/venv/
