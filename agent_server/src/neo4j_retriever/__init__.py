@@ -437,6 +437,17 @@ class Neo4jRetriever:
                     "has_explanation": bool,
                     "is_complete": bool,
                     "project_id": str or None
+                },
+                "assumption_evaluations": {
+                    "total_required": int (only assumptions where system_accepted=false),
+                    "completed": int,
+                    "is_complete": bool,
+                    "incomplete_details": [
+                        {
+                            "assumption_description": str,
+                            "has_explanation": bool
+                        }
+                    ]
                 }
             }
         """
@@ -698,6 +709,49 @@ class Neo4jRetriever:
                 "total_required": total_assumptions,
                 "completed": completed_assumptions,
                 "is_complete": completed_assumptions == total_assumptions and total_assumptions > 0,
+                "incomplete_details": incomplete_assumptions
+            }
+            
+            # 6. ASSUMPTION EVALUATIONS (only for system_accepted = false)
+            # Get all assumptions that the system rejected (require student evaluation)
+            assumptions_result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (project)-[:has_assumption]->(assumption:Assumption)
+                WHERE assumption.system_accepted = false
+                OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
+                RETURN assumption.description as assumption_description,
+                       eval.explanation as explanation
+                ORDER BY assumption.description
+            """, index=index)
+            
+            all_rejected_assumptions = []
+            incomplete_assumptions = []
+            completed_assumptions = 0
+            
+            for record in assumptions_result:
+                assumption_desc = record["assumption_description"]
+                explanation = record["explanation"]
+                has_explanation = explanation is not None and str(explanation).strip() != ""
+                
+                all_rejected_assumptions.append({
+                    "assumption_description": assumption_desc,
+                    "has_explanation": has_explanation
+                })
+                
+                if has_explanation:
+                    completed_assumptions += 1
+                else:
+                    incomplete_assumptions.append({
+                        "assumption_description": assumption_desc,
+                        "has_explanation": has_explanation
+                    })
+            
+            total_rejected = len(all_rejected_assumptions)
+            
+            result["assumption_evaluations"] = {
+                "total_required": total_rejected,
+                "completed": completed_assumptions,
+                "is_complete": completed_assumptions == total_rejected,
                 "incomplete_details": incomplete_assumptions
             }
             
@@ -1102,34 +1156,18 @@ class Neo4jRetriever:
                 }
             }
 
-        # Priority 6: Assumption evaluations
-        if not status.get("assumption_evaluations", {}).get("is_complete", False):
-            incomplete = status.get("assumption_evaluations", {}).get("incomplete_details", [])
+        # Priority 6: Assumption evaluations (only for assumptions NOT accepted by system)
+        if not status["assumption_evaluations"]["is_complete"]:
+            incomplete = status["assumption_evaluations"]["incomplete_details"]
             return {
                 "next_state": "evaluate_assumption",
                 "reason": "assumption_evaluations_incomplete",
                 "details": {
-                    "total_required": status.get("assumption_evaluations", {}).get("total_required", 0),
-                    "completed": status.get("assumption_evaluations", {}).get("completed", 0),
+                    "total_required": status["assumption_evaluations"]["total_required"],
+                    "completed": status["assumption_evaluations"]["completed"],
                     "remaining": len(incomplete),
                     "next_assumption": incomplete[0] if incomplete else None
                 }
-            }
-
-        # Priority 7: Masters intent (open answer)
-        if not status.get("masters_intent", {}).get("is_complete", False):
-            return {
-                "next_state": "masters_intent",
-                "reason": "masters_intent_incomplete",
-                "details": {}
-            }
-
-        # Priority 8: Study program feedback (open answer)
-        if not status.get("study_program_feedback", {}).get("is_complete", False):
-            return {
-                "next_state": "study_program_feedback",
-                "reason": "study_program_feedback_incomplete",
-                "details": {}
             }
 
         # All complete
@@ -1366,11 +1404,9 @@ class Neo4jRetriever:
 
     def create_project_assumption(
         self,
-        project_id: str,
-        assumption_id: str,
-        name: str,
+        project_id,
         description: str = "",
-        fulfilled: bool = True
+        system_accepted
     ):
         """
         Create a project assumption with its actual fulfillment status (ground truth)
@@ -1389,266 +1425,368 @@ class Neo4jRetriever:
             result = session.run("""
                 MATCH (project:Project {id: $project_id})
                 CREATE (project)-[:has_assumption]->(assumption:Assumption {
-                    id: $assumption_id,
-                    name: $name,
                     description: $description,
-                    fulfilled: $fulfilled
+                    system_accepted: $system_accepted
                 })
-                RETURN assumption.id as assumption_id,
-                       assumption.name as name,
-                       assumption.description as description,
-                       assumption.fulfilled as fulfilled,
+                RETURN assumption.description as description,
+                       assumption.system_accepted as system_accepted,
                        project.id as project_id,
                        project.name as project_name
             """,
                 project_id=project_id,
-                assumption_id=assumption_id,
-                name=name,
                 description=description,
-                fulfilled=fulfilled
+                system_accepted=system_accepted
             )
             return result.single()
 
     def set_assumption_evaluation(
         self,
         student_index: str,
-        assumption_id: str,
-        fulfilled: bool,
-        explanation: str = ""
+        assumption_description: str,
+        explanation: str
     ):
         """
-        Student evaluates whether a project assumption was fulfilled
-
+        Student evaluates an assumption that was NOT accepted by the automated system.
+        Students only evaluate assumptions where system_accepted = false.
+        
         Args:
             student_index: Index of the student evaluating
-            assumption_id: ID of the assumption being evaluated
-            fulfilled: True if assumption was fulfilled, False otherwise
-            explanation: Optional explanation for the evaluation
-
+            assumption_description: Description text of the assumption being evaluated
+            explanation: Student's explanation/opinion about why the assumption was/wasn't fulfilled
+            
         Returns:
             Evaluation information
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (student:Student {index: $student_index})
-                MATCH (assumption:Assumption {id: $assumption_id})
+                MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
+                MATCH (project)-[:has_assumption]->(assumption:Assumption {description: $assumption_description})
+                WHERE assumption.system_accepted = false
                 CREATE (student)-[:evaluated]->(eval:AssumptionEvaluation {
-                    fulfilled: $fulfilled,
                     explanation: $explanation
                 })-[:refers_to]->(assumption)
                 RETURN student.name as student_name,
                        student.surname as student_surname,
                        student.index as student_index,
-                       assumption.id as assumption_id,
-                       assumption.name as assumption_name,
-                       eval.fulfilled as fulfilled,
+                       assumption.description as assumption_description,
+                       assumption.system_accepted as system_accepted,
                        eval.explanation as explanation
             """,
                 student_index=student_index,
-                assumption_id=assumption_id,
-                fulfilled=fulfilled,
+                assumption_description=assumption_description,
                 explanation=explanation
             )
             return result.single()
 
-    def get_assumption_evaluations(self, assumption_id: str):
+    def get_assumption_evaluations(self, assumption_description: str):
         """
         Get all evaluations for a specific assumption
-
+        
         Args:
-            assumption_id: ID of the assumption
-
+            assumption_description: Description text of the assumption
+            
         Returns:
             List of evaluations with student information
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (assumption:Assumption {id: $assumption_id})
+                MATCH (assumption:Assumption {description: $assumption_description})
                 OPTIONAL MATCH (student:Student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
                 RETURN student.index as student_index,
                        student.name as student_name,
                        student.surname as student_surname,
-                       eval.fulfilled as fulfilled,
                        eval.explanation as explanation
                 ORDER BY student.index
-            """, assumption_id=assumption_id)
-
+            """, assumption_description=assumption_description)
+            
             return [{"student_index": record["student_index"],
                     "student_name": record["student_name"],
                     "student_surname": record["student_surname"],
-                    "fulfilled": record["fulfilled"],
                     "explanation": record["explanation"]} for record in result]
 
     def get_project_assumptions(self, project_id: str):
         """
-        Get all assumptions for a project with their actual fulfillment status
-
+        Get all assumptions for a specific project
+        
         Args:
             project_id: Project ID
-
+            
         Returns:
-            List of assumptions with fulfillment status (ground truth)
+            List of assumptions with description and system_accepted status
         """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (project:Project {id: $project_id})-[:has_assumption]->(assumption:Assumption)
-                RETURN assumption.id as assumption_id,
-                       assumption.name as name,
-                       assumption.description as description,
-                       assumption.fulfilled as fulfilled
-                ORDER BY assumption.id
+                RETURN assumption.description as description,
+                       assumption.system_accepted as system_accepted
+                ORDER BY assumption.description
             """, project_id=project_id)
+            
+            return [{"description": record["description"],
+                    "system_accepted": record["system_accepted"]} for record in result]
 
-            return [{"assumption_id": record["assumption_id"],
-                    "name": record["name"],
-                    "description": record["description"],
-                    "fulfilled": record["fulfilled"]} for record in result]
-
-    def get_unevaluated_assumptions(self, student_index: str):
+    def load_assumptions_from_json(self, json_path: str):
         """
-        Get assumptions the student hasn't evaluated yet (from their project)
-
-        Args:
-            student_index: Student index
-
-        Returns:
-            List of unevaluated assumptions with their actual fulfillment status
-        """
-        with self.driver.session() as session:
-            result = session.run("""
-                MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
-                MATCH (project)-[:has_assumption]->(assumption:Assumption)
-                WHERE NOT EXISTS {
-                    MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
-                }
-                RETURN assumption.id as assumption_id,
-                       assumption.name as name,
-                       assumption.description as description,
-                       assumption.fulfilled as fulfilled,
-                       project.id as project_id,
-                       project.name as project_name
-                ORDER BY assumption.id
-            """, student_index=student_index)
-
-            return [{"assumption_id": record["assumption_id"],
-                    "name": record["name"],
-                    "description": record["description"],
-                    "fulfilled": record["fulfilled"],
-                    "project_id": record["project_id"],
-                    "project_name": record["project_name"]} for record in result]
-
-    def has_evaluated_all_assumptions(self, student_index: str) -> bool:
-        """
-        Check if student has evaluated all assumptions from their project
-
-        Args:
-            student_index: Student index
-
-        Returns:
-            True if all assumptions evaluated, False otherwise
-        """
-        unevaluated = self.get_unevaluated_assumptions(student_index)
-        return len(unevaluated) == 0
-
-    def get_student_assumption_evaluation(self, student_index: str, assumption_id: str) -> dict | None:
-        """
-        Get a student's evaluation of a specific assumption
-
-        Args:
-            student_index: Student index
-            assumption_id: Assumption ID
-
-        Returns:
-            Evaluation dict or None if not evaluated
-        """
-        with self.driver.session() as session:
-            result = session.run("""
-                MATCH (student:Student {index: $student_index})-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption:Assumption {id: $assumption_id})
-                RETURN eval.fulfilled as fulfilled,
-                       eval.explanation as explanation,
-                       coalesce(eval.followup_done, false) as followup_done
-            """, student_index=student_index, assumption_id=assumption_id)
-            rec = result.single()
-            if not rec:
-                return None
-            return {
-                "fulfilled": rec["fulfilled"],
-                "explanation": rec["explanation"],
-                "followup_done": rec["followup_done"]
-            }
-
-    def get_project_assumptions_status(self, project_id: str) -> dict:
-        """
-        Get summary of project assumptions fulfillment status (ground truth)
-
-        Args:
-            project_id: Project ID
-
-        Returns:
-            dict with:
-                - total: int - total number of assumptions
-                - fulfilled_count: int - how many are actually fulfilled
-                - unfulfilled_count: int - how many are not fulfilled
-                - all_fulfilled: bool - whether all assumptions are fulfilled
-                - assumptions: list - detailed list of assumptions with their status
-        """
-        assumptions = self.get_project_assumptions(project_id)
+        Load assumptions from JSON file for ALL projects based on project name mapping.
+        Each assumption has description, system_accepted status, and projekt field.
         
-        fulfilled_count = sum(1 for a in assumptions if a.get("fulfilled") is True)
-        unfulfilled_count = len(assumptions) - fulfilled_count
+        Args:
+            json_path: Path to JSON file with format:
+                [
+                    {"projekt": "project_name", "opis": "description text", "spelnione": true/false},
+                    ...
+                ]
+                
+        Returns:
+            dict: Summary of loaded assumptions per project
+        """
+        import json
+        
+        with open(json_path, 'r', encoding='utf-8') as file:
+            assumptions_data = json.load(file)
+        
+        # Group assumptions by project name
+        assumptions_by_project = {}
+        for assumption in assumptions_data:
+            project_name = assumption.get('projekt', '')
+            if project_name:
+                if project_name not in assumptions_by_project:
+                    assumptions_by_project[project_name] = []
+                assumptions_by_project[project_name].append(assumption)
+        
+        # Get project_id for each project_name from database
+        project_name_to_id = {}
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (p:Project)
+                RETURN p.id as project_id, p.name as project_name
+            """)
+            for record in result:
+                project_name_to_id[record['project_name']] = record['project_id']
+        
+        # Load assumptions for each project
+        results = {}
+        for project_name, assumptions in assumptions_by_project.items():
+            project_id = project_name_to_id.get(project_name)
+            if not project_id:
+                print(f"Warning: Project '{project_name}' not found in database, skipping assumptions")
+                continue
+            
+            created_count = 0
+            accepted_count = 0
+            rejected_count = 0
+            
+            for assumption in assumptions:
+                description = assumption.get('opis', '')
+                system_accepted = assumption.get('spelnione', False)
+                
+                if description:
+                    self.create_project_assumption(
+                        project_id=project_id,
+                        description=description,
+                        system_accepted=system_accepted
+                    )
+                    created_count += 1
+                    if system_accepted:
+                        accepted_count += 1
+                    else:
+                        rejected_count += 1
+            
+            print(f"Loaded {created_count} assumptions for project '{project_name}' (ID: {project_id})")
+            print(f"  - System accepted: {accepted_count}")
+            print(f"  - System rejected (require student evaluation): {rejected_count}")
+            
+            results[project_name] = {
+                "project_id": project_id,
+                "total_created": created_count,
+                "system_accepted": accepted_count,
+                "system_rejected": rejected_count
+            }
+        
+        return results
+
+    @staticmethod
+    def generate_grades_with_assumptions(
+        grades_csv_path: str,
+        assumptions_json_path: str,
+        output_csv_path: str
+    ):
+        """
+        Generate a combined CSV file with grades and assumption definitions for ALL projects.
+        Takes existing grades.csv and adds assumption_definition rows from JSON based on project name mapping.
+        
+        Args:
+            grades_csv_path: Path to original grades CSV file
+            assumptions_json_path: Path to JSON file with assumptions (must have "projekt" field)
+            output_csv_path: Path for output combined CSV file
+            
+        Returns:
+            dict: Summary of generated file per project
+        """
+        import csv
+        import json
+        
+        # Read assumptions from JSON
+        with open(assumptions_json_path, 'r', encoding='utf-8') as f:
+            assumptions_data = json.load(f)
+        
+        # Read original grades CSV (skip comments and empty lines)
+        original_rows = []
+        with open(grades_csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames
+            for row in reader:
+                # Skip comments and empty rows
+                if row.get('type') and not row['type'].strip().startswith('#'):
+                    original_rows.append(row)
+        
+        # Get project name to ID mapping from data_no_grades.csv
+        # We need to read the CSV to know which project_id corresponds to which project_name
+        project_name_to_id = {}
+        data_csv_path = grades_csv_path.replace('grades.csv', 'data_no_grades.csv')
+        try:
+            with open(data_csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    project_name_to_id[row['project_name']] = row['project_id']
+        except FileNotFoundError:
+            print(f"Warning: {data_csv_path} not found, will use assumptions without project mapping")
+        
+        # Generate assumption_definition rows grouped by project
+        assumption_rows = []
+        stats_by_project = {}
+        
+        for assumption in assumptions_data:
+            description = assumption.get('opis', '')
+            system_accepted = 1 if assumption.get('spelnione', False) else 0
+            project_name = assumption.get('projekt', '')
+            
+            if description and project_name:
+                project_id = project_name_to_id.get(project_name, '')
+                
+                if not project_id:
+                    print(f"Warning: Project '{project_name}' not found in data_no_grades.csv")
+                    continue
+                
+                assumption_rows.append({
+                    'type': 'assumption_definition',
+                    'grader_id': '',
+                    'project_id': project_id,
+                    'graded_id': description,
+                    'grade': str(system_accepted),
+                    'explanation': ''
+                })
+                
+                # Track stats per project
+                if project_name not in stats_by_project:
+                    stats_by_project[project_name] = {'accepted': 0, 'rejected': 0, 'total': 0}
+                stats_by_project[project_name]['total'] += 1
+                if system_accepted:
+                    stats_by_project[project_name]['accepted'] += 1
+                else:
+                    stats_by_project[project_name]['rejected'] += 1
+        
+        # Write combined CSV (no comments, clean format)
+        with open(output_csv_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            # First write assumption definitions
+            for row in assumption_rows:
+                writer.writerow(row)
+            
+            # Then write original grades
+            for row in original_rows:
+                writer.writerow(row)
         
         return {
-            "total": len(assumptions),
-            "fulfilled_count": fulfilled_count,
-            "unfulfilled_count": unfulfilled_count,
-            "all_fulfilled": unfulfilled_count == 0 and len(assumptions) > 0,
-            "assumptions": assumptions
+            "output_file": output_csv_path,
+            "assumptions_added": len(assumption_rows),
+            "original_grades": len(original_rows),
+            "projects": stats_by_project
         }
-
-    def get_student_project_id(self, student_index: str) -> str | None:
-        """Get the project ID for a student"""
-        with self.driver.session() as session:
-            result = session.run("""
-                MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
-                RETURN project.id as project_id
-            """, student_index=student_index)
-            rec = result.single()
-            return rec["project_id"] if rec else None
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL DATABASE-------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     def fill_database_with_grades(self, csv_path: str):
         """
-        Load all grades from CSV file and add them to Neo4j database.
+        Load all grades and assumption definitions from CSV file and add them to Neo4j database.
 
         Args:
             csv_path (str): Path to CSV file containing columns:
                 type, grader_id, project_id, graded_id, grade, explanation
+                
+        Supported types:
+            - self_assessment, teammate_assessment, leadership_assessment, 
+              project_assessment, objectives_assessment
+            - assumption_definition: defines project assumption (graded_id=description, grade=0/1 for system_accepted)
+            - assumption_evaluation: student evaluates assumption (graded_id=description, explanation=student opinion)
         """
         import csv
 
         with open(csv_path, 'r', encoding='utf-8') as file:
             csv_reader = csv.DictReader(file)
             count = 0
-
+            
+            # First pass: create assumption definitions
+            # We need to process assumption_definition rows first before evaluations
+            file.seek(0)
+            next(csv_reader)  # Skip header
+            
+            assumptions_created = set()
+            for row in csv_reader:
+                if not row.get('type') or row['type'].strip().startswith('#'):
+                    continue
+                if row['type'].strip() == 'assumption_definition':
+                    project_id = row['project_id'] if row.get('project_id') and row['project_id'].strip() else None
+                    description = row['graded_id'] if row.get('graded_id') and row['graded_id'].strip() else None
+                    system_accepted = bool(int(row.get('grade', 0))) if row.get('grade') else False
+                    
+                    if project_id and description:
+                        assumption_key = f"{project_id}:{description}"
+                        if assumption_key not in assumptions_created:
+                            try:
+                                self.create_project_assumption(
+                                    project_id=project_id,
+                                    description=description,
+                                    system_accepted=system_accepted
+                                )
+                                assumptions_created.add(assumption_key)
+                                count += 1
+                                print(f"[{count}] Created assumption for project {project_id}: {description[:50]}...")
+                            except Exception as e:
+                                print(f"Error creating assumption: {e}")
+            
+            # Second pass: process all other grades
+            file.seek(0)
+            csv_reader = csv.DictReader(file)
 
             for row in csv_reader:
                 # Skip rows with comments or empty rows
                 if not row.get('type') or row['type'].strip().startswith('#'):
                     continue
                 
-                # Skip rows with missing required data
-                if not row.get('grader_id') or not row.get('grade'):
-                    print(f"Skipping row with missing data: {row}")
+                # Skip assumption_definition (already processed in first pass)
+                if row['type'].strip() == 'assumption_definition':
                     continue
                 
+                # Skip rows with missing required data (except assumption_evaluation which doesn't need grade)
+                grade_type = row['type'].strip()
+                if grade_type != 'assumption_evaluation':
+                    if not row.get('grader_id') or not row.get('grade'):
+                        print(f"Skipping row with missing data: {row}")
+                        continue
+                else:
+                    if not row.get('grader_id'):
+                        print(f"Skipping row with missing grader_id: {row}")
+                        continue
+                
                 try:
-                    grade_type = row['type'].strip()
                     grader_id = row['grader_id']
                     project_id = row['project_id'] if row.get('project_id') and row['project_id'].strip() else None
                     graded_id = row['graded_id'] if row.get('graded_id') and row['graded_id'].strip() else None
-                    grade = float(row['grade'])
+                    grade = float(row['grade']) if row.get('grade') and row['grade'].strip() else 0
                     explanation = row.get('explanation', '').strip()
                 except (ValueError, TypeError) as e:
                     print(f"Data conversion error in row: {row}. Error: {e}")
@@ -1694,14 +1832,15 @@ class Neo4jRetriever:
                             description=explanation
                         )
 
-                    elif grade_type == "assumption_evaluation" and project_id:
-                        # fulfilled is stored in grade field (0=False, 1=True)
-                        self.set_assumption_evaluation(
-                            student_index=grader_id,
-                            assumption_id=f"{project_id}_A1",  # Single assumption per project
-                            fulfilled=bool(int(grade)),
-                            explanation=explanation
-                        )
+                    elif grade_type == "assumption_evaluation":
+                        # Student evaluates assumption that was rejected by system
+                        # graded_id contains the assumption description
+                        if graded_id:
+                            self.set_assumption_evaluation(
+                                student_index=grader_id,
+                                assumption_description=graded_id,
+                                explanation=explanation
+                            )
 
                     count += 1
                     print(f"[{count}] Saved grade type '{grade_type}' from {grader_id}")
@@ -1711,15 +1850,21 @@ class Neo4jRetriever:
 
         print(f"Completed! Loaded {count} grades from file '{csv_path}'")
 
-    def fill_database_no_grades(self, csv_path: str):
+    def fill_database_no_grades(self, csv_path: str, assumptions_json_path: str = None):
         """
-        Fill database with students and projects from CSV file
+        Fill database with students and projects from CSV file.
+        Optionally load assumptions from JSON file.
         
         Args:
             csv_path: Path to CSV file
+            assumptions_json_path: Optional path to JSON file with assumptions.
+                                   If not provided, no assumptions are created.
         
         Format CSV:
             index,name,surname,github,project_id,project_name,role
+            
+        Format JSON (assumptions):
+            [{"opis": "description", "spelnione": true/false}, ...]
         """
         import csv
         
@@ -1732,6 +1877,7 @@ class Neo4jRetriever:
             with open(csv_path, 'r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 
+                projects_created = set()
                 for row in csv_reader:
                     # Create project (if doesn't exist)
                     session.run("""
@@ -1742,48 +1888,8 @@ class Neo4jRetriever:
                         project_name=row['project_name']
                     )
                     
-                    # Create assumptions for project (if not already created)
-                    if row['project_id'] not in projects_created:
-                        if row['project_id'] == "1":
-                            # Project 1: Create multiple assumptions with different fulfillment statuses
-                            self.create_project_assumption(
-                                project_id=row['project_id'],
-                                assumption_id=f"{row['project_id']}_A1",
-                                name="Implementacja API REST",
-                                description="Projekt powinien udostępniać API REST z endpointami CRUD",
-                                fulfilled=True
-                            )
-                            self.create_project_assumption(
-                                project_id=row['project_id'],
-                                assumption_id=f"{row['project_id']}_A2",
-                                name="Dokumentacja techniczna",
-                                description="Projekt powinien zawierać pełną dokumentację techniczną w README",
-                                fulfilled=True
-                            )
-                            self.create_project_assumption(
-                                project_id=row['project_id'],
-                                assumption_id=f"{row['project_id']}_A3",
-                                name="Testy jednostkowe",
-                                description="Projekt powinien zawierać testy jednostkowe z pokryciem min. 70%",
-                                fulfilled=False
-                            )
-                            self.create_project_assumption(
-                                project_id=row['project_id'],
-                                assumption_id=f"{row['project_id']}_A4",
-                                name="Obsługa błędów",
-                                description="Aplikacja powinna prawidłowo obsługiwać i logować błędy",
-                                fulfilled=True
-                            )
-                        else:
-                            # Other projects: Create single assumption with default fulfilled=True
-                            self.create_project_assumption(
-                                project_id=row['project_id'],
-                                assumption_id=f"{row['project_id']}_A1",
-                                name="Główne założenia projektowe",
-                                description="Ocena ogólnego spełnienia założeń projektu",
-                                fulfilled=True
-                            )
-                        projects_created.add(row['project_id'])
+                    # Track created projects for assumption loading
+                    projects_created.add(row['project_id'])
                     
                     # Create student
                     session.run("""
@@ -1811,7 +1917,13 @@ class Neo4jRetriever:
                         role=row['role']
                     )
             
-            print("Database filled successfully!")
+            print("Database filled with students and projects!")
+            
+            # Load assumptions from JSON if provided (automatically maps to projects by name)
+            if assumptions_json_path:
+                self.load_assumptions_from_json(assumptions_json_path)
+            
+            print("Database setup completed!")
 
     def clear_database(self):
         """
@@ -1859,6 +1971,23 @@ if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
     retriever.clear_database()
-    retriever.fill_database_no_grades(os.path.join(script_dir, "data_no_grades.csv"))
-    # retriever.fill_database_with_grades(os.path.join(script_dir, "grades.csv"))
-    retriever.close() # destroy retriever
+    
+    # Option 1: Fill database without grades (just students, projects, and assumptions from JSON)
+    # JSON file maps assumptions to projects using "projekt" field
+    retriever.fill_database_no_grades(
+        "src/neo4j_retriever/data_no_grades.csv",
+        "src/neo4j_retriever/raport_zgodnosci.json"
+    )
+    
+    # Option 2: Generate combined CSV and fill with grades
+    # Step 1: Generate grades_with_assumptions.csv from grades.csv + raport_zgodnosci.json
+    # Automatically maps assumptions to projects based on "projekt" field in JSON
+    # Neo4jRetriever.generate_grades_with_assumptions(
+    #     grades_csv_path="src/neo4j_retriever/grades.csv",
+    #     assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
+    #     output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
+    # )
+    # Step 2: Fill database from combined CSV
+    # retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
+    
+    retriever.close()
