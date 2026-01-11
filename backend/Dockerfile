@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y git curl ca-certificates gnupg && \
 COPY req.txt .
 # Adding missing dependencies manually just in case, though I'll update req.txt too
 RUN pip install --no-cache-dir -r req.txt && \
-    pip install --no-cache-dir fastmcp openai websockets
+    pip install --no-cache-dir openai websockets
 
 COPY . .
 

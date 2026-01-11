@@ -6,7 +6,9 @@ import { AdminAccess } from "./components/AdminAccess";
 import { useWebSocket } from "./hooks/useWebSocket";
 import type { Message } from "./types";
 
-const WS_URL = `ws://${location.hostname}:8000/ws`;
+const WS_URL = import.meta.env.VITE_BACKEND_URL
+  ? `ws://${new URL(import.meta.env.VITE_BACKEND_URL).host}/ws`
+  : `ws://${location.hostname}:8000/ws`;
 
 function App() {
   const { isConnected, connect } = useWebSocket(WS_URL);

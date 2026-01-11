@@ -79,12 +79,13 @@ def load_commits(github_token, owner, repo_name, git_branch):
     return df_sorted
 
 HOST_WORKSPACE_DIR = os.getenv("HOST_WORKSPACE_DIR", WORKSPACE_DIR)
+DOCKER_NETWORK = os.getenv("DOCKER_NETWORK", "steamy_stools_steamy-network")
 
 def run_sonar_scanner():
-    print(f"[DEBUG] Starting SonarScanner via Docker. Volume: {HOST_WORKSPACE_DIR}:/usr/src, Network: zsd20_zsd-network")
+    print(f"[DEBUG] Starting SonarScanner via Docker. Volume: {HOST_WORKSPACE_DIR}:/usr/src, Network: {DOCKER_NETWORK}")
     cmd = [
         "docker", "run", "--rm",
-        "--network", "zsd20_zsd-network",
+        "--network", DOCKER_NETWORK,
         "-e", f"SONAR_HOST_URL={SONAR_HOST_URL}",
         "-e", f"SONAR_LOGIN={SONAR_TOKEN}",
         "-e", f"SONAR_TOKEN={SONAR_TOKEN}", 
