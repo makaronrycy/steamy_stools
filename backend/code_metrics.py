@@ -5,20 +5,21 @@ import requests
 import pandas as pd
 import shutil
 import stat
+import json
 from pymongo import MongoClient
 from git import Repo
 from dotenv import load_dotenv
 from sklearn.preprocessing import MinMaxScaler
 from Detect_Useless_Commits import detect_useless_commits
 from regularity_metrics import evaluate_commit_regularities
-
+from pathlib import Path
+from urllib.parse import urlparse
 load_dotenv()
 
 # Env variables
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OWNER = os.getenv("OWNER")
 REPO_NAME = os.getenv("REPO_NAME")
-GIT_BRANCH = os.getenv("MAIN_BRANCH", "main")
 GIT_BRANCH = os.getenv("MAIN_BRANCH", "main")
 
 MONGO_URI = os.getenv("MONGO_URI")
@@ -39,16 +40,20 @@ WEEKS = int(os.getenv("WEEKS"))
 
 
 
-def load_commits():
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
-    url = f"https://api.github.com/repos/{OWNER}/{REPO_NAME}/commits"
+def load_commits(github_token, owner, repo_name, git_branch):
+    headers = {
+    "Authorization": f"token {github_token}",
+    "Accept": "application/vnd.github+json"
+    }
+
+    url = f"https://api.github.com/repos/{owner}/{repo_name}/commits"
 
     all_commits = []
     page = 1
     per_page = 100
 
     while True:
-        params = {"sha": GIT_BRANCH, "per_page": per_page, "page": page}
+        params = {"sha": git_branch, "per_page": per_page, "page": page}
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         
@@ -122,12 +127,19 @@ def create_sonar_properties_file(sonar_project_commit):
 
     return file_path
 
-def clone_repository():
-
+def clone_repository(clean_url, github_token):
     if os.path.exists(REPO_DIR):
         return Repo(REPO_DIR)
-    
-    repo = Repo.clone_from(GITHUB_URL, REPO_DIR)
+
+    # https://github.com/owner/repo
+    # ↓
+    # https://TOKEN@github.com/owner/repo
+    auth_url = clean_url.replace(
+        "https://github.com/",
+        f"https://{github_token}@github.com/"
+    )
+
+    repo = Repo.clone_from(auth_url, REPO_DIR)
     return repo
 
 def get_sonar_metrics(project_key):
@@ -196,8 +208,8 @@ def delete_sonar_project(project_key):
     else:
         print(f"Nie udało się usunąć projektu '{project_key}'. Status: {response.status_code}, odpowiedź: {response.text}")
     
-def reset_to_latest_and_detect(repo):
-    repo.git.checkout(GIT_BRANCH)
+def reset_to_latest_and_detect(repo, git_branch):
+    repo.git.checkout(git_branch)
     repo.remotes.origin.pull()
     
     # detect_useless_commits now accepts repo_path 
@@ -261,7 +273,7 @@ def compute_commit_score(df):
 
       # Skala 0–1 (im wyższa, tym lepiej)
     df['commit_score'] = 1 - (df['commit_score'] - df['commit_score'].min()) / (df['commit_score'].max() - df['commit_score'].min() + 1e-9)
-    df['commit_score'] = 2+df['commit_score'] * (5-2) 
+    df['commit_score'] = 2+df['commit_score'] * 3 
     
     return df
 
@@ -272,69 +284,109 @@ def evaluate_commits(metrics_df, useless_commits):
 
 def full_github_review():
 
-    remove_repo_dir(REPO_DIR)
+
     
-    commits = load_commits()
-    
-    setup_workspace()
-    
-    repo = clone_repository()
-    
-    commit_key = SONAR_PROJECT_KEY
-    
-    useless_commits = reset_to_latest_and_detect(repo)
-    
-    for useless_commit in useless_commits:
+    api_keys = []
+    names = []
+    owners = []
+    project_names = []
+    branches = []
+    clean_urls = []
+    input_path = Path("/app/data/projects.json")
+    with open(input_path, "r", encoding="utf-8") as f:
+        projects = json.load(f)
+
+
+
+    for item in projects:
+        names.append(item["name"])
+        api_keys.append(item["api_key"])
+        github_url = item["github"]
+        parsed_url = urlparse(github_url)
+
+        path_parts = parsed_url.path.strip("/").split("/")
+
+        owner = path_parts[0]
+        project_name = path_parts[1]
+        branch = path_parts[3]
+
+        clean_url = github_url.split("/tree/")[0]
+        clean_urls.append(clean_url)
+        owners.append(owner)
+        project_names.append(project_name)
+        branches.append(branch)
+
+
+    print("\n", api_keys, owners, project_names, branches)
+    print("\n", GITHUB_TOKEN, OWNER, REPO_NAME, GIT_BRANCH)
+
+    for owner, project_name, branch, name, api_key, clean_url in zip(owners, project_names, branches, names, api_keys, clean_urls):
+
+        print("\n", api_key, owner, project_name, branch)
+        print("\n", GITHUB_TOKEN, OWNER, REPO_NAME, GIT_BRANCH)
+        remove_repo_dir(REPO_DIR)
+
+        commits = load_commits(api_key, owner, project_name, branch)
         
-        commits = commits[commits['sha'] != useless_commit['sha']]
-    
-    commits.reset_index(drop = True, inplace = True)
-    commits_len = len(commits)
-    print("/n",commits_len, "------------------")
-    create_sonar_properties_file(commit_key)
-    
-    
-    oldest_commit = commits.iloc[0]["sha"]
-    all_metrics = []
-    for i in range(commits_len):
-
-        commit = commits.iloc[i]["sha"]
-        repo.git.checkout(commit)
-
-        run_sonar_scanner()
-        wait_for_sonar_analysis(commit_key)
-        metrics = get_sonar_metrics(commit_key)
-        metrics["sha"] = commits.iloc[i]["sha"]
-        metrics["author"] = commits.iloc[i]["author"]
-        metrics["date"] = commits.iloc[i]["date"]
+        setup_workspace()
         
-        delete_sonar_project(commit_key)
-        all_metrics.append(metrics)
+        repo = clone_repository(clean_url, api_key)
+        
+        commit_key = SONAR_PROJECT_KEY
+        
+        useless_commits = reset_to_latest_and_detect(repo, branch)
+        
+        for useless_commit in useless_commits:
+            
+            commits = commits[commits['sha'] != useless_commit['sha']]
+        
+        commits.reset_index(drop = True, inplace = True)
+        commits_len = len(commits)
+        print("/n",commits_len, "------------------")
+        create_sonar_properties_file(commit_key)
+        
+        
+        oldest_commit = commits.iloc[0]["sha"]
+        all_metrics = []
+        #commits_len
+        for i in range(3):
+
+            commit = commits.iloc[i]["sha"]
+            repo.git.checkout(commit)
+
+            run_sonar_scanner()
+            wait_for_sonar_analysis(commit_key)
+            metrics = get_sonar_metrics(commit_key)
+            metrics["sha"] = commits.iloc[i]["sha"]
+            metrics["author"] = commits.iloc[i]["author"]
+            metrics["date"] = commits.iloc[i]["date"]
+            
+            delete_sonar_project(commit_key)
+            all_metrics.append(metrics)
+            
+
+        dfs_names, unique_names = date_preprocessing(commits)
+
+        metrics_df = pd.DataFrame(all_metrics)
+        metrics_df['date'] = pd.to_datetime(metrics_df['date'], errors='coerce').dt.tz_localize(None)
+        metrics_df.sort_values(by = 'date', ascending = True, inplace = True)
+
         
 
-    dfs_names, unique_names = date_preprocessing(commits)
+        metrics_processing(metrics_df)
 
-    metrics_df = pd.DataFrame(all_metrics)
-    metrics_df['date'] = pd.to_datetime(metrics_df['date'], errors='coerce').dt.tz_localize(None)
-    metrics_df.sort_values(by = 'date', ascending = True, inplace = True)
+        regularity_df = evaluate_commit_regularities(dfs_names.copy(), unique_names.copy(), PROJECT_START_TIME, WEEKS)
 
-    
+        metrics_scored_df = evaluate_commits(metrics_df.copy(), useless_commits)
+        avg_scores_raw = metrics_scored_df.groupby('author')['commit_score'].mean().reset_index()
+        avg_scores_raw['commit_score'] = (avg_scores_raw['commit_score'] / 0.25).round() * 0.25
+        merged = pd.merge(regularity_df, avg_scores_raw, on="author", how="outer")
 
-    metrics_processing(metrics_df)
+        merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
+        merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
+        avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
 
-    regularity_df = evaluate_commit_regularities(dfs_names.copy(), unique_names.copy(), PROJECT_START_TIME, WEEKS)
-
-    metrics_scored_df = evaluate_commits(metrics_df.copy(), useless_commits)
-    avg_scores_raw = metrics_scored_df.groupby('author')['commit_score'].mean().reset_index()
-    avg_scores_raw['commit_score'] = (avg_scores_raw['commit_score'] / 0.25).round() * 0.25
-    merged = pd.merge(regularity_df, avg_scores_raw, on="author", how="outer")
-
-    merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
-    merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
-    avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
-
-
-    client = MongoClient(MONGO_URI)
-    db_save(client,"GitHubDB","score", avg_scores)
-
-    remove_repo_dir(REPO_DIR)
+        #NEO4J SAVE OR DATA PASS TO SOMEONE
+        #client = MongoClient(MONGO_URI)
+        #db_save(client,"GitHubDB","score", avg_scores)
+        remove_repo_dir(REPO_DIR)
