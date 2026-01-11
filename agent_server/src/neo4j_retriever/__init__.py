@@ -1405,8 +1405,8 @@ class Neo4jRetriever:
     def create_project_assumption(
         self,
         project_id,
-        description: str = "",
-        system_accepted
+        description: str,
+        system_accepted: bool
     ):
         """
         Create a project assumption with its actual fulfillment status (ground truth)
