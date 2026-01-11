@@ -20,7 +20,33 @@ class Neo4jRetriever:
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    
+    def list_people(self):
+        response = []
+        with self.driver.session() as session:
+            projects = session.run("Match (p:Project) RETURN p.id as id, p.name as name ORDER BY p.id").data()
+
+        for record in projects:
+            payload = {}
+            payload['project_id'] = record['id']
+            payload['project_name'] = record['name']
+            payload['people'] = []
+
+            with self.driver.session() as session:
+                people_for_project = session.run("""
+                    MATCH (s:Student)-[:belongs_to]->(p:Project {id: $project_id})
+                    RETURN s.name AS name, s.surname AS surname, s.index AS index
+                    ORDER BY s.index
+                """, project_id=record['id']).data()
+
+            for person_record in people_for_project:
+                person_payload = {
+                    'name': person_record['name'],
+                    'surname': person_record['surname'],
+                    'index': person_record['index']
+                }
+                payload['people'].append(person_payload)
+            response.append(payload)
+        return response
     def get_id_by_name(self, name: str, surname: str = None):
         """
         Get student ID (index) by name and optional surname
