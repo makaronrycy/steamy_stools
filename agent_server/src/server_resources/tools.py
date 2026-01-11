@@ -88,13 +88,13 @@ async def get_project_grades_tool(param: GetProjectGradesRequest) -> str:
 async def get_member_grades_tool(param: GetMemberGradesRequest) -> str:
     try:
         retriever = Neo4jRetriever()
-        grades = retriever.get_member_grades(index=param.index)
+        grades = retriever.get_member_grades(name=param.name)
         retriever.close()
 
         if not grades:
-            return f"No grades found for member {param.index}"
+            return f"No grades found for member {param.name}"
 
-        result = [f"Grades for member {param.index}:"]
+        result = [f"Grades for member {param.name}:"]
         for g in grades:
             leader = "LEADER" if g['is_leader'] else "member"
             result.append(f"- {g['grader_index']} ({leader}) -> {g['grade']}")
@@ -112,7 +112,7 @@ async def get_member_grades_tool(param: GetMemberGradesRequest) -> str:
 async def is_leader_tool(param: IsLeaderRequest) -> str:
     try:
         retriever = Neo4jRetriever()
-        flag = retriever.is_leader(index=param.index)
+        flag = retriever.is_leader(name=param.name)
         retriever.close()
         return "TRUE" if flag else "FALSE"
     except Exception as e:
@@ -145,9 +145,22 @@ async def get_user_info_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
+<<<<<<< agent_flow
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
 
         info = retriever.get_user_info(index=user_index)
+=======
+            return "ERROR: 'user_index' header not found"
+            
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
+
+        info = retriever.get_user_info(name=user_name)
+>>>>>>> main
         retriever.close()
 
         if not info:
@@ -177,7 +190,7 @@ async def get_user_info_tool() -> str:
 async def has_graded_all_members_tool(param: HasGradedAllMembersRequest) -> str:
     try:
         retriever = Neo4jRetriever()
-        flag = retriever.has_graded_all_members(index=param.index)
+        flag = retriever.has_graded_all_members(name=param.name)
         retriever.close()
         return "TRUE" if flag else "FALSE"
     except Exception as e:
@@ -196,7 +209,15 @@ async def get_ungraded_members_tool() -> str:
         if not user_index:
             return "ERROR: 'user_index' header not found"
         retriever = Neo4jRetriever()
-        lst = retriever.get_ungraded_members(index=user_index)
+        
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
+
+        lst = retriever.get_ungraded_members(name=user_name)
         retriever.close()
         return f"Ungraded teammates for {user_index}: {lst}"
     except Exception as e:
@@ -215,7 +236,15 @@ async def get_random_ungraded_member_tool() -> str:
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
 
         retriever = Neo4jRetriever()
-        member = retriever.get_random_ungraded_member(index=user_index)
+        
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
+
+        member = retriever.get_random_ungraded_member(name=user_name)
         retriever.close()
 
         # Zwracamy JSON: dict albo null
@@ -237,7 +266,15 @@ async def has_graded_all_projects_tool() -> str:
         if not user_index:
             return "ERROR: 'user_index' header not found"
         retriever = Neo4jRetriever()
-        flag = retriever.has_graded_all_projects(index=user_index)
+        
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
+
+        flag = retriever.has_graded_all_projects(name=user_name)
         retriever.close()
         return "TRUE" if flag else "FALSE"
     except Exception as e:
@@ -278,7 +315,15 @@ async def get_ungraded_projects_tool() -> str:
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
 
         retriever = Neo4jRetriever()
-        lst = retriever.get_ungraded_projects(index=user_index)
+        
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
+
+        lst = retriever.get_ungraded_projects(name=user_name)
         retriever.close()
 
         return json.dumps(lst, ensure_ascii=False)
@@ -300,7 +345,15 @@ async def get_student_completion_status_tool() -> str:
         user_index = request.headers.get("user_id")
         if not user_index:
             return "ERROR: 'user_index' header not found"
-        status = retriever.get_student_completion_status(index=user_index)
+            
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
+
+        status = retriever.get_student_completion_status(name=user_name)
         retriever.close()
         return str(status)
     except Exception as e:
@@ -325,7 +378,14 @@ async def get_next_required_state_tool() -> dict:
         if not user_index:
             return {"error": "'user_id' header not found"}
 
-        next_state_info = retriever.get_next_required_state(student_index=user_index)
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return {"error": f"No user found for index {user_index}"}
+
+        next_state_info = retriever.get_next_required_state(name=user_name)
 
         # Also get the session to retrieve last_state and current state
         session = retriever.get_or_create_session(student_index=user_index)
