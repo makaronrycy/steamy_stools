@@ -1434,6 +1434,45 @@ class Neo4jRetriever:
                 description=description
             )
             return result.single()
+
+    def set_github_grade(
+        self,
+        grading_person_index: str,
+        graded_person_index: str,
+        grade: float,
+        description: str,
+    ):
+        """
+        Save GitHub activity assessment
+
+        Args:
+            grading_person_index: Index number of the person grading
+            graded_person_index: Index number of the person being graded
+            grade: GitHub activity grade (e.g. 2.0-5.0)
+            description: Justification for the grade
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (autor:Student {index: $grading_person_index}),
+                    (oceniany:Student {index: $graded_person_index})
+                CREATE (autor)-[:answered]->(o:Answer {
+                    question_type: "github_assessment",
+                    grade: $grade,
+                    explanation: $description
+                })-[:refers_to]->(oceniany)
+                RETURN autor.name as grader_name,
+                    autor.surname as grader_surname,
+                    oceniany.name as graded_name,
+                    oceniany.surname as graded_surname,
+                    o.grade,
+                    o.explanation
+            """,
+                grading_person_index=grading_person_index,
+                graded_person_index=graded_person_index,
+                grade=grade,
+                description=description
+            )
+            return result.single()
     
     def set_leader_grade(
         self, 
@@ -1908,7 +1947,7 @@ class Neo4jRetriever:
                 
         Supported types:
             - self_assessment, teammate_assessment, leadership_assessment, 
-              project_assessment, objectives_assessment
+              project_assessment, objectives_assessment, github_assessment
             - assumption_definition: defines project assumption (graded_id=description, grade=0/1 for system_accepted)
             - assumption_evaluation: student evaluates assumption (graded_id=description, explanation=student opinion)
         """
@@ -1988,6 +2027,14 @@ class Neo4jRetriever:
 
                     elif grade_type == "teammate_assessment" and graded_id:
                         self.set_teammate_grade(
+                            grading_person_index=grader_id,
+                            graded_person_index=graded_id,
+                            grade=grade,
+                            description=explanation
+                        )
+
+                    elif grade_type == "github_assessment" and graded_id:
+                        self.set_github_grade(
                             grading_person_index=grader_id,
                             graded_person_index=graded_id,
                             grade=grade,
@@ -2171,10 +2218,10 @@ if __name__ == "__main__":
     # Step 1: Generate grades_with_assumptions.csv from grades.csv + raport_zgodnosci.json
     # Automatically maps assumptions to projects based on "projekt" field in JSON
     Neo4jRetriever.generate_grades_with_assumptions(
-        grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
-        assumptions_json_path="src/neo4j_retriever/raport.json",
-        output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
-    )
+         grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
+         assumptions_json_path="src/neo4j_retriever/raport.json",
+         output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
+     )
     # Step 2: Fill database from combined CSV
     retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
     
