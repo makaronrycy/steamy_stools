@@ -80,3 +80,14 @@ async def list_people_endpoint(request):
     people = connector.list_people()
     logging.warning(f'[list_people_endpoint] {datetime.now()} finished')
     return JSONResponse(people, status_code=200)
+@MCP_SERVER.custom_route(path='/completion_status', methods=['GET'])
+async def completion_status_endpoint(request):
+    logging.warning(f'[completion_status_endpoint] {datetime.now()} started')
+    connector = Neo4jRetriever(
+        uri=os.environ['NEO4J_URI'],
+        username=os.environ['NEO4J_USERNAME'],
+        password=os.environ['NEO4J_PASSWORD'],
+    )
+    status = connector.get_completion_status()
+    logging.warning(f'[completion_status_endpoint] {datetime.now()} finished')
+    return JSONResponse(status, status_code=200)

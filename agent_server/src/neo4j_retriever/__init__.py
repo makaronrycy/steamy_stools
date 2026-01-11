@@ -20,6 +20,32 @@ class Neo4jRetriever:
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    def get_completion_status(self):
+        """
+        Get completion status of all students
+        
+        Returns:
+            dict: Completion status
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (all_students:Student)
+                WITH COUNT(all_students) as total_students
+                OPTIONAL MATCH (completed_student:Student)-[:HAS_SESSION]->(cs:ConversationSession)
+                WHERE cs.current_state IN ["completed", "done"] OR cs.completed = true
+                WITH total_students, COUNT(DISTINCT completed_student) as completed_students
+                RETURN completed_students, 
+                total_students,
+                total_students - completed_students as remaining_students,
+                ROUND(100.0 * completed_students / total_students, 2) as completion_percentage"""
+            ).single()
+            return {
+                "completed_students": result["completed_students"],
+                "total_students": result["total_students"],
+                "remaining_students": result["remaining_students"],
+                "completion_percentage": result["completion_percentage"]
+            }
+                
     def is_member_of_project(self, student_index: str, project_id: str) -> bool:
         """
         Check if a student is a member of a given project
