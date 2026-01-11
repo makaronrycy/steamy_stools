@@ -8,8 +8,7 @@ from langfuse import Langfuse
 from .states import State
 import os
 import logfire
-import nest_asyncio
-nest_asyncio.apply()
+# Removed nest_asyncio - it causes RuntimeError with async context managers in Sanic
 logfire.configure(
     service_name="Gorące Krzesła",
     send_to_logfire=False,
@@ -29,16 +28,26 @@ class AgentWorkflow:
         self.model = "gpt-4o-mini"
         self.history = list(reversed(history))
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
+        langfuse = None
+        langfuse_enabled = False
+        
+        # Try to initialize Langfuse, but make it optional
         try:
-            langfuse = Langfuse(
-                secret_key=os.environ['LANGFUSE_SECRET_KEY'],
-                public_key=os.environ['LANGFUSE_PUBLIC_KEY'],
-                host=os.environ['LANGFUSE_HOST'],
-                timeout=60,
-            )
+            if all(key in os.environ for key in ['LANGFUSE_SECRET_KEY', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_HOST']):
+                langfuse = Langfuse(
+                    secret_key=os.environ['LANGFUSE_SECRET_KEY'],
+                    public_key=os.environ['LANGFUSE_PUBLIC_KEY'],
+                    host=os.environ['LANGFUSE_HOST'],
+                    timeout=60,
+                )
+                langfuse_enabled = True
+            else:
+                logging.warning("Langfuse credentials not found, tracing disabled")
         except Exception as e:
             logging.error(f"Failed to initialize Langfuse: {e}")
-        with langfuse.start_as_current_span(name ="AgentWorkflow Run") as span:
+        
+        # Define the main logic as a separate async generator
+        async def run_workflow():
             yield {"state": "STARTING"}
             if self.state.name == "initial" or self.state.name =="done" or self.last_state is None or self.last_state.verification_prompt_name is None:
                 agent = await self.prepare_question_agent(self.state.prompt_name)
@@ -48,14 +57,16 @@ class AgentWorkflow:
             runner =  Runner()
             ls = self.last_state if isinstance(self.last_state, dict) else {"question": str(self.last_state or "")}
             prompt = f"Historia:{self.history}\nOdpowiedź użytkownika: {self.user_anwser}"
-            langfuse.update_current_trace(
-                user_id= str(self.user_id),
-                input=prompt
-            )
+            
+            if langfuse_enabled and langfuse:
+                langfuse.update_current_trace(
+                    user_id= str(self.user_id),
+                    input=prompt
+                )
+            
             result = runner.run_streamed(starting_agent=agent, input=prompt)
 
             async for step in result.stream_events():
-                #logging.warning(f"Step: {step}")
                 if step.type == "raw_response_event":
                     if step.data.type == 'response.output_text.delta':
                         yield {"state": "ANSWERING", "answer": step.data.delta}
@@ -80,16 +91,26 @@ class AgentWorkflow:
                     except Exception as e:
                         logging.error(f"Error processing run item: {e}")
 
-            try:
-                langfuse.update_current_trace(
-                    output ={
-                        "final_answer": result.final_output,
-                        "state": self.state.name,
-                    }
-                )
-            except Exception as e:
-                logging.error(f"Failed to update Langfuse trace: {e}")
+            if langfuse_enabled and langfuse:
+                try:
+                    langfuse.update_current_trace(
+                        output ={
+                            "final_answer": result.final_output,
+                            "state": self.state.name,
+                        }
+                    )
+                except Exception as e:
+                    logging.error(f"Failed to update Langfuse trace: {e}")
             yield {"state": "DONE"}
+        
+        # Run with or without Langfuse span
+        if langfuse_enabled and langfuse:
+            with langfuse.start_as_current_span(name ="AgentWorkflow Run") as span:
+                async for step in run_workflow():
+                    yield step
+        else:
+            async for step in run_workflow():
+                yield step
 
     async def prepare_verification_agent(self,verification_prompt_name,question_prompt_name) ->Agent:
         try:

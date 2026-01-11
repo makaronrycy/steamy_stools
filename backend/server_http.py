@@ -6,17 +6,19 @@ from contextlib import asynccontextmanager
 from typing import List, Optional, Any, Dict
 import os
 import subprocess
-from fastmcp import Client  # klient FastMCP
+import httpx
 from openai import OpenAI
 
 # Import GitHub analysis function
 from code_metrics import full_github_review
 
+# URL do agent-client (wewnętrzna sieć Docker)
+AGENT_CLIENT_URL = os.getenv("AGENT_CLIENT_URL", "http://agent-client:3000")
+
 def to_jsonable(obj: Any) -> Any:
-    """Zapewnia JSON-owalność wyniku MCP (CallToolResult .data)."""
+    """Zapewnia JSON-owalność wyniku."""
     payload = getattr(obj, "data", obj)
     try:
-        # szybki test serializacji
         jsonable_encoder(payload)
         return payload
     except Exception:
@@ -24,18 +26,10 @@ def to_jsonable(obj: Any) -> Any:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # MCP client uruchamia server_mcp.py jako subprocess (STDIO)
-    client = Client("server_mcp.py")
-    await client.__aenter__()
-    await client.ping()
-    app.state.mcp_client = client
-    
     # OpenAI (LLM) — klucz z ENV
     app.state.openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     yield
-    
-    await client.__aexit__(None, None, None)
 
 app = FastAPI(title="Hot Seat Game API", lifespan=lifespan)
 
@@ -93,28 +87,30 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data: Dict[str, Any] = await websocket.receive_json()
-            tool_name = data.get("tool")
-            arguments = data.get("arguments") or {}
+            msg_type = data.get("type", "unknown")
             
-            try:
-                result_obj = await app.state.mcp_client.call_tool(tool_name, arguments)  # type: ignore
-                payload = to_jsonable(result_obj)
-                response = {"type": "tool_response", "tool": tool_name, "data": {"result": payload}}
-            except Exception as e:
-                response = {"type": "tool_response", "tool": tool_name, "data": {"error": str(e)}}
+            # WebSocket służy głównie do broadcastów i statusów
+            # Tool calls idą przez agent-client (/start_agent na porcie 3000)
+            response = {
+                "type": "ack", 
+                "message": f"Received message type: {msg_type}",
+                "data": data
+            }
             
             await websocket.send_json(response)
-            await manager.broadcast({"type": "update", "message": f"Wywołano narzędzie: {tool_name}"})
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
 @app.post("/api/tools/{tool_name}")
 async def call_tool(tool_name: str, arguments: Dict[str, Any]):
-    try:
-        result_obj = await app.state.mcp_client.call_tool(tool_name, arguments)  # type: ignore
-        return {"result": to_jsonable(result_obj)}
-    except Exception as e:
-        return {"error": str(e)}
+    """
+    Deprecated: Tool calls now go through agent-client on port 3000.
+    Use POST /start_agent on agent-client instead.
+    """
+    return {
+        "error": "deprecated",
+        "message": "Tool calls now go through agent-client. Use POST http://localhost:3000/start_agent instead."
+    }
 
 @app.post("/api/llm")
 async def chat_with_llm(request: Dict[str, Any]):
@@ -134,7 +130,27 @@ async def chat_with_llm(request: Dict[str, Any]):
     except Exception as e:
         return {"error": str(e)}
 
-# === GitHub Analysis Endpoint ===
+# === Agent Client Proxy (CORS bypass) ===
+@app.post("/api/agent/start")
+async def proxy_start_agent(request: Dict[str, Any]):
+    """
+    Proxy endpoint dla agent-client.
+    Frontend wywołuje ten endpoint, a backend przekazuje request do agent-client.
+    Rozwiązuje problem CORS (Sanic nie obsługuje CORS domyślnie).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                f"{AGENT_CLIENT_URL}/start_agent",
+                json=request,
+                headers={"Content-Type": "application/json"}
+            )
+            return response.json()
+    except httpx.TimeoutException:
+        return {"error": "timeout", "message": "Przekroczono czas oczekiwania na odpowiedź agenta."}
+    except Exception as e:
+        return {"error": str(e), "message": "Nie udało się połączyć z agent-client."}
+
 @app.post("/api/github/analyze")
 async def analyze_github(background_tasks: BackgroundTasks):
     """

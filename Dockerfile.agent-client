@@ -1,0 +1,42 @@
+# Override Dockerfile for agent_client
+FROM python:3.12-slim as builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pip dependencies directly instead of using poetry
+RUN pip install --no-cache-dir \
+    fastmcp \
+    openai-agents \
+    tiktoken \
+    sanic \
+    langfuse \
+    'pydantic-ai[logfire]' \
+    nest_asyncio \
+    neo4j
+
+# Runtime stage
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+COPY agent_client/src ./src
+COPY agent_client/start.py ./
+
+EXPOSE 3000
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+CMD ["python", "start.py"]

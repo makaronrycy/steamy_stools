@@ -6,6 +6,6 @@ gitpython
 scikit-learn
 fastapi
 uvicorn
-fastmcp
 openai
 websockets
+httpx

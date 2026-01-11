@@ -107,6 +107,11 @@ def load_commits(
 
     return df_sorted
 
+HOST_WORKSPACE_DIR = os.getenv("HOST_WORKSPACE_DIR", WORKSPACE_DIR)
+DOCKER_NETWORK = os.getenv("DOCKER_NETWORK", "steamy_stools_steamy-network")
+
+def run_sonar_scanner():
+    print(f"[DEBUG] Starting SonarScanner via Docker. Volume: {HOST_WORKSPACE_DIR}:/usr/src, Network: {DOCKER_NETWORK}")
 def run_sonar_scanner() -> None:
     """
     Uruchamia SonarScanner w kontenerze Docker.
@@ -120,7 +125,7 @@ def run_sonar_scanner() -> None:
     print(f"[DEBUG] Starting SonarScanner via Docker. Volume: {HOST_WORKSPACE_DIR}:/usr/src, Network: zsd20_zsd-network")
     cmd = [
         "docker", "run", "--rm",
-        "--network", "zsd20_zsd-network",
+        "--network", DOCKER_NETWORK,
         "-e", f"SONAR_HOST_URL={SONAR_HOST_URL}",
         "-e", f"SONAR_LOGIN={SONAR_TOKEN}",
         "-e", f"SONAR_TOKEN={SONAR_TOKEN}", 
@@ -516,8 +521,13 @@ def full_github_review() -> None:
     branches = []
     clean_urls = []
     input_path = Path("/app/data/projects.json")
-    with open(input_path, "r", encoding="utf-8") as f:
-        projects = json.load(f)
+    
+    try:
+        with open(input_path, "r", encoding="utf-8") as f:
+            projects = json.load(f)
+    except Exception as e:
+        print(f"Error loading projects.json: {e}")
+        return
 
     for item in projects:
         names.append(item["name"])
@@ -529,7 +539,7 @@ def full_github_review() -> None:
 
         owner = path_parts[0]
         project_name = path_parts[1]
-        branch = path_parts[3]
+        branch = path_parts[3] if len(path_parts) > 3 else "main" # Fallback if branch not in URL
 
         clean_url = github_url.split("/tree/")[0]
         clean_urls.append(clean_url)
@@ -542,18 +552,25 @@ def full_github_review() -> None:
 
         remove_repo_dir(REPO_DIR)
 
-        commits = load_commits(api_key, owner, project_name, branch)
-        
+        try:
+            commits = load_commits(api_key, owner, project_name, branch)
+        except Exception as e:
+            print(f"Failed to load commits for {project_name}: {e}")
+            continue
+            
         setup_workspace()
         
-        repo = clone_repository(clean_url, api_key)
+        try:
+            repo = clone_repository(clean_url, api_key)
+        except Exception as e:
+            print(f"Failed to clone repo for {project_name}: {e}")
+            continue
         
-        commit_key = SONAR_PROJECT_KEY
+        commit_key = current_project_key
         
         useless_commits = reset_to_latest_and_detect(repo, branch)
         
         for useless_commit in useless_commits:
-            
             commits = commits[commits['sha'] != useless_commit['sha']]
         
         commits.reset_index(drop = True, inplace = True)
@@ -567,16 +584,21 @@ def full_github_review() -> None:
             commit = commits.iloc[i]["sha"]
             repo.git.checkout(commit)
 
-            run_sonar_scanner()
-            wait_for_sonar_analysis(commit_key)
-            metrics = get_sonar_metrics(commit_key)
-            metrics["sha"] = commits.iloc[i]["sha"]
-            metrics["author"] = commits.iloc[i]["author"]
-            metrics["date"] = commits.iloc[i]["date"]
+                run_sonar_scanner()
+                wait_for_sonar_analysis(commit_key)
+                metrics = get_sonar_metrics(commit_key)
+                metrics["sha"] = commits.iloc[i]["sha"]
+                metrics["author"] = commits.iloc[i]["author"]
+                metrics["date"] = commits.iloc[i]["date"]
+                
+                delete_sonar_project(commit_key)
+                all_metrics.append(metrics)
+            except Exception as e:
+                print(f"Error processing commit {i}: {e}")
             
-            delete_sonar_project(commit_key)
-            all_metrics.append(metrics)
-            
+        if not all_metrics:
+            print(f"No metrics collected for {name}")
+            continue
 
         dfs_names, unique_names = date_preprocessing(commits)
 
@@ -593,11 +615,29 @@ def full_github_review() -> None:
         avg_scores_raw['commit_score'] = (avg_scores_raw['commit_score'] / 0.25).round() * 0.25
         merged = pd.merge(regularity_df, avg_scores_raw, on="author", how="outer")
 
-        merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
-        merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
-        avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
+            merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
+            merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
+            avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
+            
+            avg_scores['project_name'] = name 
 
-        #NEO4J SAVE OR DATA PASS TO SOMEONE
-        #client = MongoClient(MONGO_URI)
-        #db_save(client,"GitHubDB","score", avg_scores)
+            # Save to MongoDB
+            try:
+                if MONGO_URI:
+                    print(f"Saving {len(avg_scores)} records to MongoDB for {name}...")
+                    client = MongoClient(MONGO_URI)
+                    github_db = client["GitHubDB"]
+                    db = github_db["score"]
+                    
+                    if not avg_scores.empty:
+                        data_dict = avg_scores.to_dict("records")
+                        db.insert_many(data_dict)
+                        print("Results saved successfully.")
+                else:
+                    print("MONGO_URI not set, skipping DB save.")
+            except Exception as e:
+                print(f"Failed to save to MongoDB: {e}")
+        else:
+            print(f"No valid metrics to score for {name}")
+
         remove_repo_dir(REPO_DIR)

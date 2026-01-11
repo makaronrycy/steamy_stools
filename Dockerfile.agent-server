@@ -1,0 +1,48 @@
+# Override Dockerfile for agent_server
+FROM python:3.10-slim as builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy pyproject.toml to extract dependencies
+COPY agent_server/pyproject.toml ./
+
+# Install pip dependencies directly instead of using poetry
+RUN pip install --no-cache-dir \
+    fastmcp \
+    'modelcontextprotocol[sse]' \
+    'requests>=2.28.1' \
+    py2neo \
+    aiohttp \
+    starlette \
+    uvicorn \
+    anyio \
+    neo4j \
+    openai
+
+# Runtime stage
+FROM python:3.10-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+COPY agent_server/src ./src
+COPY agent_server/start.py ./
+
+EXPOSE 10000
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV WORKERS=1
+
+CMD ["python", "start.py"]
