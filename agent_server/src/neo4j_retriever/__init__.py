@@ -1731,9 +1731,6 @@ class Neo4jRetriever:
             
             # First pass: create assumption definitions
             # We need to process assumption_definition rows first before evaluations
-            file.seek(0)
-            next(csv_reader)  # Skip header
-            
             assumptions_created = set()
             for row in csv_reader:
                 if not row.get('type') or row['type'].strip().startswith('#'):
