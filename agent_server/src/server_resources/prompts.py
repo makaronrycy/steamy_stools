@@ -271,10 +271,10 @@ Wejście:
 Cel:
 - Zapisać ocenę projektu tylko jeśli odpowiedź jest kompletna, na temat i spójna.
 
-Zdobądź informacje o użytkowniku wywołując narzędzie `get_user_info_tool`, jeśli jeszcze tego nie zrobiłeś.
+Sprawdź czy użytkownik należy do projektu wywołujać is_member_of_project_tool z PENDING_TARGET.project_id.
+DLA TRUE: Dokładna walidacja.
+DLA FALSE: Liberalna walidacja.
 
-Jeśli użytkownik należy do projektu, to używaj dokładnej walidacji.
-Jeśli nie należy do projektu, bądź bardziej liberalny w ocenie odpowiedzi.
 Dokładna walidacja:
 1) Wydobądź ocenę 2.0–5.0 (akceptuj 5 jako 5.0, przecinek 4,5).
 2) Oceń uzasadnienie semantycznie:
@@ -363,7 +363,7 @@ async def assumption_evaluation_verification_prompt() -> str:
 Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_ASSUMPTION.
 
 Wejście:
-- PENDING_TARGET: dict (assumption_id, name, description, project_id, project_name) — oceniane założenie
+- PENDING_TARGET: dict (assumption_id, description, project_id, project_name) — oceniane założenie
 - ODPOWIEDŹ_UŻYTKOWNIKA: tekst
 - HISTORIA: lista wiadomości (jeśli jest, możesz z niej korzystać)
 

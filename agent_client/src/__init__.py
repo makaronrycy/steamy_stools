@@ -428,7 +428,7 @@ def get_app() -> Sanic:
         elif state.name == "evaluate_project_grade" and target:
             target_text:str  = f"{target.get('project_name','')}".strip()
         elif state.name == "evaluate_assumption" and target:
-            target_text:str  = f"{target.get('name','')}".strip()
+            target_text:str  = f"{target.get('description','')}".strip()
         else:
             target_text = ""
 
@@ -1020,7 +1020,6 @@ def get_app() -> Sanic:
                             mcp_server=mcp_server,
                             agent_name=f"VerificationAgent/{pending_state_key}",
                             prompt_name=verify_prompt_name,
-                            #pending_target= pending_target
                         )
 
                         verify_input = (
@@ -1029,6 +1028,7 @@ def get_app() -> Sanic:
                             f"PENDING_TARGET: {pending_target}\n"
                             f"ODPOWIEDŹ_UŻYTKOWNIKA: {user_anwser}\n"
                         )
+                        print(f"Input to verification agent:\n{verify_input}")
                         verify_text = await _run_agent_text(v_agent, verify_input, langfuse_client=langfuse, pending_state=pending_state_key)
 
                         # DB-first: check completion after verifier runs
