@@ -778,7 +778,7 @@ async def set_study_program_feedback_tool(param: SetOpenAnswerRequest) -> str:
     description="Checks if current user's teammate grade is an outlier vs peers. Returns JSON.",
     tags=set(['retrieval', 'analysis']),
 )
-async def check_teammate_outlier_tool(graded_person_index: str, threshold: float = 1.0, min_peers: int = 3) -> str:
+async def check_teammate_outlier_tool(graded_person_index: str, threshold: float = 1.0, min_peers: int = 1) -> str:
     try:
         request = get_http_request()
         grader_index = request.headers.get("user_id")
