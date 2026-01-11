@@ -11,3 +11,4 @@ websockets
 httpx
 pymupdf
 pymupdf4llm
+neo4j

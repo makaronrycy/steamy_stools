@@ -8,6 +8,8 @@ import os
 import subprocess
 import httpx
 from openai import OpenAI
+from pathlib import Path
+from dotenv import dotenv_values
 
 # Import GitHub analysis function
 # Import GitHub analysis function
@@ -213,19 +215,25 @@ async def init_neo4j_database():
     Inicjalizuje bazę danych Neo4j uruchamiając skrypt w kontenerze steamy-agent-server.
     """
     try:
-        # 1. Pobierz IP kontenera steamy-neo4j (rozwiązanie problemu DNS)
-        try:
-            inspect_cmd = ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", "steamy-neo4j"]
-            neo4j_ip = subprocess.check_output(inspect_cmd, text=True).strip()
-        except Exception:
-            neo4j_ip = "steamy-neo4j" # Fallback to hostname
-        
-        # 2. Uruchom skrypt z odpowiednim URI
-        # docker exec -e NEO4J_URI=neo4j://<IP>:7687 steamy-agent-server python -m src.neo4j_retriever.__init__
-        
+        # 1. Uruchom skrypt z odpowiednim URI
+        # docker exec -e NEO4J_URI=neo4j+s://<HOST> -e NEO4J_USERNAME=neo4j -e NEO4J_PASSWORD=<PASSWORD> steamy-agent-server python -m src.neo4j_retriever.__init__
+        env_path = Path(__file__).resolve().parents[1] / "agent_server" / ".env"
+        env_values = dotenv_values(env_path) if env_path.exists() else {}
+        neo4j_uri = env_values.get("NEO4J_URI") or os.getenv("NEO4J_URI")
+        neo4j_username = env_values.get("NEO4J_USERNAME") or os.getenv("NEO4J_USERNAME")
+        neo4j_password = env_values.get("NEO4J_PASSWORD") or os.getenv("NEO4J_PASSWORD")
+
+        if not all([neo4j_uri, neo4j_username, neo4j_password]):
+            return {
+                "status": "error",
+                "message": "Brakuje NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD w agent_server/.env lub w ENV backendu."
+            }
+
         cmd = [
             "docker", "exec", 
-            "-e", f"NEO4J_URI=neo4j://{neo4j_ip}:7687", 
+            "-e", f"NEO4J_URI={neo4j_uri}",
+            "-e", f"NEO4J_USERNAME={neo4j_username}",
+            "-e", f"NEO4J_PASSWORD={neo4j_password}",
             "steamy-agent-server", 
             "python", "-m", "src.neo4j_retriever.__init__"
         ]
@@ -235,12 +243,12 @@ async def init_neo4j_database():
         if result.returncode == 0:
             return {
                 "status": "success",
-                "message": f"Baza danych zainicjalizowana pomyślnie. (IP: {neo4j_ip})\nLogi:\n{result.stdout}"
+                "message": f"Baza danych zainicjalizowana pomyślnie. (URI: {neo4j_uri})\nLogi:\n{result.stdout}"
             }
         else:
             return {
                 "status": "error",
-                "message": f"Błąd inicjalizacji bazy (IP: {neo4j_ip}):\n{result.stderr}"
+                "message": f"Błąd inicjalizacji bazy (URI: {neo4j_uri}):\n{result.stderr}"
             }
             
 
