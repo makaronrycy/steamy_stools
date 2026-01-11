@@ -9,7 +9,7 @@ readme = "./README.md"
 requires-python = ">=3.10,<4.0"
 dependencies = [
     "fastmcp",
-    'modelcontextprotocol[sse]',
+    'mcp>=1.0.0',
     'requests>=2.28.1',
     'py2neo',
     'aiohttp',
