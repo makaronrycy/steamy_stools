@@ -52,7 +52,7 @@ AVAILABLE_STATES = {
         verification_prompt_name="project_evaluation_verification_prompt",
         question="Jaką ocenę (2.0–5.0) wystawiłbyś projektowi i dlaczego? Podaj ocenę i krótkie uzasadnienie. Nie referuj do id projektu, tylko do jego nazwy.",
         allowed_tools_question=["get_user_info_tool"],
-        allowed_tools_verification=["set_project_grade_tool"],
+        allowed_tools_verification=["set_project_grade_tool", "get_user_info_tool"],
     ),
 
     "evaluate_leader_grade": State(

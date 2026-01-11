@@ -130,59 +130,60 @@ def get_app() -> Sanic:
         mcp_server: MCPServerStreamableHttp,
         pending_state_key: str,
         pending_target: dict | None
-    ) -> bool:
+    ) -> tuple[bool, dict]:
         """
         DB-first completion check for the *pending* item.
         This prevents loops when model replied but tools didn't persist.
+        Returns: (is_completed, completion_status)
         """
         st = await _get_completion_status(mcp_server)
 
         if pending_state_key == "self_evaluation":
-            return bool(st.get("self_assessment", {}).get("is_complete"))
+            return bool(st.get("self_assessment", {}).get("is_complete")), st
 
         if pending_state_key == "evaluate_teammate_grade":
             if not pending_target or not pending_target.get("index"):
-                return False
+                return False, st
             tgt = str(pending_target.get("index"))
             incomplete = st.get("teammate_assessments", {}).get("incomplete_details", []) or []
             for d in incomplete:
                 if str(d.get("teammate_index")) == tgt:
-                    return bool(d.get("has_grade")) and bool(d.get("has_explanation"))
-            return True
+                    return bool(d.get("has_grade")) and bool(d.get("has_explanation")), st
+            return True, st
 
         if pending_state_key == "evaluate_project_grade":
             if not pending_target or not pending_target.get("project_id"):
-                return False
+                return False, st
             tgt = str(pending_target.get("project_id"))
             incomplete = st.get("project_assessments", {}).get("incomplete_details", []) or []
             for d in incomplete:
                 if str(d.get("project_id")) == tgt:
-                    return bool(d.get("has_grade")) and bool(d.get("has_explanation"))
-            return True
+                    return bool(d.get("has_grade")) and bool(d.get("has_explanation")), st
+            return True, st
 
         if pending_state_key == "evaluate_leader_grade":
-            return bool(st.get("leadership_assessment", {}).get("is_complete"))
+            return bool(st.get("leadership_assessment", {}).get("is_complete")), st
 
         if pending_state_key == "evaluate_objectives":
-            return bool(st.get("objectives_assessment", {}).get("is_complete"))
+            return bool(st.get("objectives_assessment", {}).get("is_complete")), st
 
         if pending_state_key == "evaluate_assumption":
             if not pending_target or not pending_target.get("assumption_id"):
-                return False
+                return False, st
             tgt = str(pending_target.get("assumption_id"))
             incomplete = st.get("assumption_evaluations", {}).get("incomplete_details", []) or []
             for d in incomplete:
                 if str(d.get("assumption_id")) == tgt:
-                    return bool(d.get("has_evaluation")) and bool(d.get("has_explanation"))
-            return True
+                    return bool(d.get("has_evaluation")) and bool(d.get("has_explanation")), st
+            return True, st
 
         if pending_state_key == "masters_intent":
-            return bool(st.get("masters_intent", {}).get("is_complete"))
+            return bool(st.get("masters_intent", {}).get("is_complete")), st
 
         if pending_state_key == "study_program_feedback":
-            return bool(st.get("study_program_feedback", {}).get("is_complete"))
+            return bool(st.get("study_program_feedback", {}).get("is_complete")), st
 
-        return False
+        return False, st
 
     def _missing_info_hint(pending_state_key: str, pending_target: dict | None, completion_status: dict) -> str:
         """
@@ -390,7 +391,7 @@ def get_app() -> Sanic:
 
         return Agent(
             name=agent_name,
-            model="gpt-4o-mini",
+            model="gpt-4o",
             instructions=base_instructions.strip(),
             mcp_servers=[mcp_server],
             model_settings=ModelSettings(tool_choice="auto"),
@@ -443,7 +444,7 @@ def get_app() -> Sanic:
 
         return Agent(
             name=f"QuestionAgent/{state.name}",
-            model="gpt-4o-mini",
+            model="gpt-4o",
             instructions=base_instructions.strip(),
             mcp_servers=[mcp_server],
             model_settings=ModelSettings(tool_choice="auto"),
@@ -624,6 +625,11 @@ def get_app() -> Sanic:
             print(f"Pending target: {pending_target}")
             print(f"Pending substate: {pending_substate}")
 
+            # Fetch conversation history once for reuse throughout the endpoint
+            history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
+            history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
+            history_messages = history_dict.get("messages", [])
+
                         # ---------------------- POST-INTERVIEW CHITCHAT MODE ----------------------
             # If interview is done (DB says "done"), keep chatting forever until SAFE_WORD.
             # IMPORTANT: persist "ended" flag in DB (pending_substate) so next requests won't restart chat.
@@ -714,7 +720,7 @@ def get_app() -> Sanic:
 
                 # 3) Save user message (as chat)
                 if session_id:
-                    await mcp_server.session.call_tool( 
+                    await mcp_server.session.call_tool(
                         "save_conversation_message_tool",
                         arguments={
                             "session_id": session_id,
@@ -723,13 +729,15 @@ def get_app() -> Sanic:
                             "state_at_time": "done",
                         },
                     )
+                    # Append to local history for consistency
+                    history_messages.append({
+                        "role": "user",
+                        "content": user_anwser,
+                        "state_at_time": "done",
+                    })
 
                 # 4) Generate chat reply (no DB writes except conversation log)
                 chat_agent = await _build_post_interview_chat_agent(mcp_server)
-
-                history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool") 
-                history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
-                history_messages = history_dict.get("messages", [])
 
                 chat_input = (
                     f"HISTORIA (skrócona): {history_messages[-12:]}\n"
@@ -883,9 +891,13 @@ def get_app() -> Sanic:
                         base_question=pending_state.question,
                         target=pending_target
                     )
+                    question_input = (
+                        f"HISTORIA: {history_messages}\n"
+                        f"Wygeneruj pytanie dla użytkownika."
+                    )
                     final_q = await _run_agent_text(
                         question_agent,
-                        "Wygeneruj pytanie dla użytkownika.",
+                        question_input,
                         langfuse_client=langfuse,
                         pending_state=pending_state_key
                     )
@@ -913,7 +925,7 @@ def get_app() -> Sanic:
 
             # 4) Save user's message as response to pending state
             if session_id:
-                await mcp_server.session.call_tool( 
+                await mcp_server.session.call_tool(
                     "save_conversation_message_tool",
                     arguments={
                         "session_id": session_id,
@@ -922,11 +934,18 @@ def get_app() -> Sanic:
                         "state_at_time": pending_state_key,
                     },
                 )
+                # Append to local history so verification/question agents have the latest context
+                history_messages.append({
+                    "role": "user",
+                    "content": user_anwser,
+                    "state_at_time": pending_state_key,
+                })
 
             # -------- 4C) If we are answering an outlier followup, append it and clear substate --------
             saved = False
             verify_text = ""
             skip_verification = False
+            completion_status = {}
 
             if isinstance(pending_substate, dict) and pending_substate.get("type") == "outlier_followup":
                 if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
@@ -997,10 +1016,6 @@ def get_app() -> Sanic:
                         saved = False
                         verify_text = "Brakuje prompta weryfikacyjnego dla tego stanu — nie mogę zapisać odpowiedzi."
                     else:
-                        history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool") 
-                        history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
-                        history_messages = history_dict.get("messages", [])
-
                         v_agent = await _build_verification_agent(
                             mcp_server=mcp_server,
                             agent_name=f"VerificationAgent/{pending_state_key}",
@@ -1017,12 +1032,10 @@ def get_app() -> Sanic:
                         verify_text = await _run_agent_text(v_agent, verify_input, langfuse_client=langfuse, pending_state=pending_state_key)
 
                         # DB-first: check completion after verifier runs
-                        saved = await _is_pending_state_completed(mcp_server, pending_state_key, pending_target)
+                        saved, completion_status = await _is_pending_state_completed(mcp_server, pending_state_key, pending_target)
 
-                        # If not saved, add DB-derived precise hint
+                        # If not saved, append DB-derived precise hint to LLM response
                         if not saved:
-                            completion_status = await _get_completion_status(mcp_server)
-
                             hint = _contextual_followup(
                                 pending_state_key,
                                 pending_target or {},
@@ -1033,17 +1046,13 @@ def get_app() -> Sanic:
                             if not (verify_text or "").strip():
                                 verify_text = hint
                             else:
-                                low = verify_text.lower()
-                                if ("doprecyz" in low) or ("brakuje" in low):
-                                    verify_text = hint
-                                else:
-                                    verify_text = f"{verify_text.strip()}\n\n{hint}"
+                                # Always append hint to provide clear guidance alongside LLM response
+                                verify_text = f"{verify_text.strip()}\n\n{hint}"
 
             # 6) If not saved -> clarification, keep same state/target
             if not saved:
                 final_q = (verify_text or "").strip()
                 if not final_q:
-                    completion_status = await _get_completion_status(mcp_server)
                     final_q = _missing_info_hint(pending_state_key, pending_target or {}, completion_status)
 
                 if session_id:
@@ -1210,10 +1219,13 @@ def get_app() -> Sanic:
                     base_question=next_state.question,
                     target=next_target
                 )
+                question_input = (
+                    f"HISTORIA: {history_messages}\n"
+                    f"Wygeneruj pytanie dla użytkownika."
+                )
                 final_q = await _run_agent_text(
                     question_agent,
-                    "Wygeneruj pytanie dla użytkownika.",
-
+                    question_input,
                     langfuse_client=langfuse,
                     pending_state=next_state_key
                 )

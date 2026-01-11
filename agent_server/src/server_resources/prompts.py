@@ -28,7 +28,7 @@ NIE WITAJ SIĘ PONOWNIE z użytkownikiem - to już zostało zrobione w poprzedni
 Twoim zadaniem jest zadać użytkownikowi następujące pytanie i czekać na jego odpowiedź.
 Pytanie jest następujące: {question}. 
 {target_text}
-Upewnij się, że pytanie jest jasne i zwięzłe. Zapewnij żeby przejście do pytania było naturalne i uprzejme, ale nie nawiązuj do poprzednich tematów.
+Upewnij się, że pytanie jest jasne i zwięzłe. Zapewnij żeby przejście do pytania było naturalne i uprzejme, zwięźle przechodząc od ostatniej odpowiedzi z historii, jeśli jest.
 Nie odpowiadaj na pytanie jeden do jednego, stwórz naturalne pytanie w języku polskim na podstawie powyższego tekstu.
 Miej świadomość, że odpowiedź aktualna użytkownika nie referuje na pytanie, które zadajesz, ponieważ może to być odpowiedź na poprzednie pytanie.
 Twoim zadaniem jest zadać pytanie i czekać na odpowiedź użytkownika.
@@ -271,13 +271,30 @@ Wejście:
 Cel:
 - Zapisać ocenę projektu tylko jeśli odpowiedź jest kompletna, na temat i spójna.
 
-Walidacja:
+Zdobądź informacje o użytkowniku wywołując narzędzie `get_user_info_tool`, jeśli jeszcze tego nie zrobiłeś.
+
+Jeśli użytkownik należy do projektu, to używaj dokładnej walidacji.
+Jeśli nie należy do projektu, bądź bardziej liberalny w ocenie odpowiedzi.
+Dokładna walidacja:
 1) Wydobądź ocenę 2.0–5.0 (akceptuj 5 jako 5.0, przecinek 4,5).
 2) Oceń uzasadnienie semantycznie:
    - czy dotyczy projektu (funkcjonalność, jakość, stabilność, UX, zakres, organizacja prac),
    - czy ma konkrety (feature/problem/przykład).
 3) Spójność ocena↔opis.
 4) Off-topic: jeśli user pisze o czymś innym → 1 zdanie i wróć do oceny projektu.
+
+Liberalna walidacja:
+1) Wydobądź ocenę 2.0–5.0 (akceptuj 5 jako 5.0, przecinek 4,5).
+2) Oceń uzasadnienie luźniej:
+   - czy w ogóle odnosi się do projektu (nie musi być super konkretne),
+   - uzasadnienie może być subiektywne/opinią.
+3) Spójność ocena↔opis luźniej.
+4) Off-topic: jeśli user pisze o czymś innym → 1 zdanie i wróć do oceny projektu.
+
+W obu walidacjach sprawdź czy nie ma kontekstu już w HISTORII dla tego samego PENDING_TARGET.
+Jeśli tak, i aktualna odpowiedź usera jest doprecyzowaniem → ZAPISZ (połącz info z historii i odpowiedzi).
+
+NIGDY NIE REFERUJ JAKIEJ WALIDACJI STOSUJESZ - po prostu działaj zgodnie z powyższymi zasadami.
 
 Kiedy ZAPISUJESZ:
 → set_project_grade_tool:
@@ -408,7 +425,7 @@ Użytkownik: "Tak"
 Użytkownik: "Bugi są"
 → NIE ZAPISUJ: "Czy mimo bugów założenia projektu zostały spełnione? Powiedz TAK lub NIE i krótko uzasadnij."
 
-ODPOWIEDŹ JEDNYM pytaniem doprecyzowującym w języku naturalnym, odnosząc się do tego co user napisał, oraz do nazwy założenia z PENDING_TARGET.
+ODPOWIEDŹ JEDNYM pytaniem doprecyzowującym w języku naturalnym, odnosząc się do tego co user napisał, oraz do nazwy założenia z PENDING_TARGET (name).
 """
 
 
