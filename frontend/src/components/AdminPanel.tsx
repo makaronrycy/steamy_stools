@@ -57,6 +57,56 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+
+  const handleAssumptionsInit = async () => {
+    setIsAnalyzing(true);
+    setMessage("Tworzenie katalogów założeń...");
+    setMessageType("info");
+
+    try {
+      const result = await api.initAssumptions(); // Assuming this is added to api.ts
+
+      if (result.status === "success") {
+        setMessage(result.message || "Katalogi zostały utworzone.");
+        setMessageType("success");
+      } else {
+        setMessage(result.message || "Błąd podczas tworzenia katalogów.");
+        setMessageType("error");
+      }
+    } catch (error: any) {
+      setMessage("Nie udało się utworzyć katalogów.");
+      setMessageType("error");
+      console.error("Assumptions Init Error:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+
+  const handleAssumptionsAnalyze = async () => {
+    setIsAnalyzing(true);
+    setMessage("Trwa analiza założeń (może to zająć chwilę)...");
+    setMessageType("info");
+
+    try {
+      const result = await api.analyzeAssumptions();
+
+      if (result.status === "success") {
+        setMessage(result.message || "Analiza zakończona.");
+        setMessageType("success");
+      } else {
+        setMessage(result.message || "Błąd podczas analizy.");
+        setMessageType("error");
+      }
+    } catch (error: any) {
+      setMessage("Nie udało się przeprowadzić analizy.");
+      setMessageType("error");
+      console.error("Assumptions Analyze Error:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   return (
     <div className="admin-panel">
       <h2>Panel Administratora</h2>
@@ -83,6 +133,30 @@ export const AdminPanel: React.FC = () => {
             🗄️ Inicjalizuj Bazę Danych
           </button>
         </div>
+
+        <div style={{ marginTop: "20px" }}>
+          <h4>📁 Zarządzanie Założeniami</h4>
+          <div className="button-group">
+            <button
+              onClick={handleAssumptionsInit}
+              disabled={isAnalyzing}
+              className="btn-secondary"
+              style={{ backgroundColor: "#e67e22" }}
+            >
+              1. Utwórz Katalogi
+            </button>
+
+            <button
+              onClick={handleAssumptionsAnalyze}
+              disabled={isAnalyzing}
+              className="btn-primary"
+              style={{ marginLeft: "10px", backgroundColor: "#9b59b6" }}
+            >
+              2. Uruchom Analizę Założeń
+            </button>
+          </div>
+        </div>
+
 
         {message && (
           <div className={`message message-${messageType}`}>

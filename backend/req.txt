@@ -9,3 +9,5 @@ uvicorn
 openai
 websockets
 httpx
+pymupdf
+pymupdf4llm

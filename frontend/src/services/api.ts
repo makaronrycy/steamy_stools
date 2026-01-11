@@ -86,4 +86,28 @@ export const api = {
       throw error;
     }
   },
+
+  async initAssumptions(): Promise<{ status: string; message: string }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/assumptions/init`
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Assumptions init error:", error);
+      throw error;
+    }
+  },
+
+  async analyzeAssumptions(): Promise<{ status: string; message: string; errors?: string[] }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/assumptions/analyze`
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Assumptions analysis error:", error);
+      throw error;
+    }
+  },
 };

@@ -1,4 +1,5 @@
 .env
+**/.env
 poetry.lock
 __pycache__/
 .venv/
@@ -12,3 +13,5 @@ backend/data/projects.json
 backend/workspace/
 backend/__pycache__/
 backend/venv/
+**/projects.json
+**/assumptions/

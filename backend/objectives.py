@@ -143,9 +143,23 @@ def verify_objectives(objectives, text_end):
 # MAIN – PRZETWARZANIE WIELU PROJEKTÓW
 # =====================
 
-def main():
-    for project_name in os.listdir(BASE_PROJECTS_DIR):
-        project_path = os.path.join(BASE_PROJECTS_DIR, project_name)
+def analyze_assumptions():
+    """
+    Core logic for analyzing assumptions.
+    Returns: Dict with summary of processed projects.
+    """
+    processed_count = 0
+    errors = []
+    
+    # Absolute path inside docker
+    base_dir = os.path.join(os.getcwd(), BASE_PROJECTS_DIR)
+    
+    if not os.path.exists(base_dir):
+        return {"status": "error", "message": f"Katalog {BASE_PROJECTS_DIR} nie istnieje. Najpierw utwórz katalogi."}
+
+    for project_name in os.listdir(base_dir):
+        # Full path construction
+        project_path = os.path.join(base_dir, project_name)
 
         if not os.path.isdir(project_path):
             continue
@@ -159,25 +173,40 @@ def main():
             print(" Brak wymaganych folderów – pomijam")
             continue
 
-        text_project = read_all_files_from_dir(start_dir)
-        text_end = read_all_files_from_dir(end_dir)
+        try:
+            text_project = read_all_files_from_dir(start_dir)
+            
+            # Skip if no content
+            if not text_project.strip():
+                 print(f"Brak plików w {start_dir}")
+                 continue
+                 
+            text_end = read_all_files_from_dir(end_dir)
 
-        
-        project_name = extract_project_name(text_project)
-        
+            # Analyze
+            extracted_name = extract_project_name(text_project)
+            objectives = extract_objectives(text_project, extracted_name)
 
-        
-        objectives = extract_objectives(text_project, project_name)
+            with open(os.path.join(project_path, "objectives.json"), "w", encoding="utf-8") as f:
+                json.dump(objectives, f, indent=2, ensure_ascii=False)
 
-        with open(os.path.join(project_path, "objectives.json"), "w", encoding="utf-8") as f:
-            json.dump(objectives, f, indent=2, ensure_ascii=False)
+            raport = verify_objectives(objectives, text_end)
 
-        
-        raport = verify_objectives(objectives, text_end)
+            with open(os.path.join(project_path, "raport.json"), "w", encoding="utf-8") as f:
+                json.dump(raport, f, indent=2, ensure_ascii=False)
+                
+            processed_count += 1
+            
+        except Exception as e:
+            msg = f"Błąd w projekcie {project_name}: {str(e)}"
+            print(msg)
+            errors.append(msg)
 
-        with open(os.path.join(project_path, "raport.json"), "w", encoding="utf-8") as f:
-            json.dump(raport, f, indent=2, ensure_ascii=False)
-
+    return {
+        "status": "success", 
+        "message": f"Przeanalizowano {processed_count} projektów.",
+        "errors": errors
+    }
 
 if __name__ == "__main__":
-    main()
+    analyze_assumptions()

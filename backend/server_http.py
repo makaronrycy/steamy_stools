@@ -10,7 +10,11 @@ import httpx
 from openai import OpenAI
 
 # Import GitHub analysis function
+# Import GitHub analysis function
 from code_metrics import full_github_review
+# Import Assumptions dirs function
+from assumptions_dirs import create_assumption_dirs
+from objectives import analyze_assumptions
 
 # URL do agent-client (wewnętrzna sieć Docker)
 AGENT_CLIENT_URL = os.getenv("AGENT_CLIENT_URL", "http://agent-client:3000")
@@ -223,10 +227,45 @@ async def init_neo4j_database():
                 "message": f"Błąd inicjalizacji bazy (IP: {neo4j_ip}):\n{result.stderr}"
             }
             
+
     except Exception as e:
         return {
             "status": "error",
             "message": f"Wystąpił wyjątek podczas inicjalizacji DB: {str(e)}"
+        }
+
+@app.post("/api/assumptions/init")
+async def init_assumptions_dirs():
+    """
+    Tworzy katalogi na założenia projektowe (assumptions).
+    """
+    try:
+        result = create_assumption_dirs()
+        return result
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Błąd endpointu assumptions: {str(e)}"
+        }
+
+@app.post("/api/assumptions/analyze")
+async def run_assumptions_analysis(background_tasks: BackgroundTasks):
+    """
+    Uruchamia analizę założeń (objectives.py) w tle.
+    Analizuje pliki w assumptions/[projekt]/start_assumptions.
+    """
+    try:
+        # For long running tasks, use background logic or just run sync if it's fast enough
+        # Given it calls OpenAI multiple times, sync might time out. 
+        # But for simplicity let's try sync first, or wrap in background task and return status.
+        # User requested "click button -> run analysis". 
+        
+        result = analyze_assumptions()
+        return result
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Błąd analizy założeń: {str(e)}"
         }
 
 if __name__ == "__main__":
