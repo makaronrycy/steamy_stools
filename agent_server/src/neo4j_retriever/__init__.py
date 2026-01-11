@@ -544,6 +544,8 @@ class Neo4jRetriever:
                     WHERE answer.question_type = "teammate_assessment"
                     RETURN answer.grade as grade,
                            answer.explanation as explanation
+                    ORDER BY id(answer) DESC
+                    LIMIT 1
                 """, grader_name=name, teammate_index=teammate_idx).single()
                 
                 if teammate_answer:

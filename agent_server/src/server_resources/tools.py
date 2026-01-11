@@ -784,17 +784,20 @@ async def check_teammate_outlier_tool(graded_person_index: str, threshold: float
         grader_index = request.headers.get("user_id")
         if not grader_index:
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
-        if not grader_index:
-            return "ERROR: 'user_index' header not found"
+
         retriever = Neo4jRetriever()
+        
+        # Get the graded person's name to fetch their grades
         with retriever.driver.session() as session:
-            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=grader_index).single()
-            user_name = res["name"] if res else None
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=graded_person_index).single()
+            graded_name = res["name"] if res else None
+        
+        if not graded_name:
+            retriever.close()
+            return json.dumps({"eligible": False, "is_outlier": False, "reason": "Could not find graded person."}, ensure_ascii=False)
 
-       
-
-        # all grades given to graded_person_index
-        grades = retriever.get_member_grades(name=str(user_name)) or []
+        # Get all grades given TO the graded person (not FROM the grader)
+        grades = retriever.get_member_grades(name=str(graded_name)) or []
 
         # find user's latest answer meta (also tells if followup already done)
         meta = retriever.get_latest_teammate_answer_meta(grading_person_index=str(grader_index), graded_person_index=str(graded_person_index))
@@ -1050,6 +1053,7 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
 
         retriever = Neo4jRetriever()
+        
         
         # Get user's project ID
         project_id = retriever.get_student_project_id(str(user_index))
