@@ -1,4 +1,6 @@
-from .. import MCP_SERVER,Neo4jRetriever
+from .. import MCP_SERVER
+# WYŁĄCZONE - nie używamy Neo4j póki co
+from ..neo4j_retriever import Neo4jRetriever
 import logging
 from datetime import datetime
 import os
