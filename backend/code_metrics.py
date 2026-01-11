@@ -584,17 +584,15 @@ def full_github_review() -> None:
             commit = commits.iloc[i]["sha"]
             repo.git.checkout(commit)
 
-                run_sonar_scanner()
-                wait_for_sonar_analysis(commit_key)
-                metrics = get_sonar_metrics(commit_key)
-                metrics["sha"] = commits.iloc[i]["sha"]
-                metrics["author"] = commits.iloc[i]["author"]
-                metrics["date"] = commits.iloc[i]["date"]
+            run_sonar_scanner()
+            wait_for_sonar_analysis(commit_key)
+            metrics = get_sonar_metrics(commit_key)
+            metrics["sha"] = commits.iloc[i]["sha"]
+            metrics["author"] = commits.iloc[i]["author"]
+            metrics["date"] = commits.iloc[i]["date"]
                 
-                delete_sonar_project(commit_key)
-                all_metrics.append(metrics)
-            except Exception as e:
-                print(f"Error processing commit {i}: {e}")
+            delete_sonar_project(commit_key)
+            all_metrics.append(metrics)
             
         if not all_metrics:
             print(f"No metrics collected for {name}")
@@ -615,27 +613,27 @@ def full_github_review() -> None:
         avg_scores_raw['commit_score'] = (avg_scores_raw['commit_score'] / 0.25).round() * 0.25
         merged = pd.merge(regularity_df, avg_scores_raw, on="author", how="outer")
 
-            merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
-            merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
-            avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
+        merged['final_score'] = (merged['regularity_score'] * 0.65) + (merged['commit_score'] * 0.35)
+        merged['final_score'] = (merged['final_score'] / 0.25).round() * 0.25
+        avg_scores = merged[['author', 'final_score', 'regularity_score', 'commit_score']].copy()
             
-            avg_scores['project_name'] = name 
+        avg_scores['project_name'] = name 
 
-            # Save to MongoDB
-            try:
-                if MONGO_URI:
-                    print(f"Saving {len(avg_scores)} records to MongoDB for {name}...")
-                    client = MongoClient(MONGO_URI)
-                    github_db = client["GitHubDB"]
-                    db = github_db["score"]
+        # Save to MongoDB
+        try:
+            if MONGO_URI:
+                print(f"Saving {len(avg_scores)} records to MongoDB for {name}...")
+                client = MongoClient(MONGO_URI)
+                github_db = client["GitHubDB"]
+                db = github_db["score"]
                     
-                    if not avg_scores.empty:
-                        data_dict = avg_scores.to_dict("records")
-                        db.insert_many(data_dict)
-                        print("Results saved successfully.")
+                if not avg_scores.empty:
+                    data_dict = avg_scores.to_dict("records")
+                    db.insert_many(data_dict)
+                    print("Results saved successfully.")
                 else:
                     print("MONGO_URI not set, skipping DB save.")
-            except Exception as e:
+        except Exception as e:
                 print(f"Failed to save to MongoDB: {e}")
         else:
             print(f"No valid metrics to score for {name}")
