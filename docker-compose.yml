@@ -115,6 +115,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./backend/workspace:/app/workspace
+      - ./backend/data:/app/data
+      - ./backend/assumptions:/app/assumptions
     depends_on:
       mongodb:
         condition: service_healthy

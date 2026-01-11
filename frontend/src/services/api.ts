@@ -6,10 +6,10 @@ const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || `http://${location.host
 
 export const api = {
   // === ChatPanel -> Backend proxy -> Agent Client ===
-  async sendToLLM(message: string): Promise<string> {
+  async sendToLLM(message: string, userId: string = "2001"): Promise<string> {
     try {
-      // user_id możesz brać z logowania / stanu, na razie na sztywno
-      const user_id = "2001";
+      // user_id przekazany dynamicznie
+      const user_id = userId;
 
       const payload = {
         user_id,
@@ -84,6 +84,40 @@ export const api = {
     } catch (error) {
       console.error("Database init error:", error);
       throw error;
+    }
+  },
+
+  async initAssumptions(): Promise<{ status: string; message: string }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/assumptions/init`
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Assumptions init error:", error);
+      throw error;
+    }
+  },
+
+  async analyzeAssumptions(): Promise<{ status: string; message: string; errors?: string[] }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/assumptions/analyze`
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Assumptions analysis error:", error);
+      throw error;
+    }
+  },
+
+  async getPeople(): Promise<any[]> {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/agent/people`);
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch people:", error);
+      return [];
     }
   },
 };

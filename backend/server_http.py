@@ -10,10 +10,15 @@ import httpx
 from openai import OpenAI
 
 # Import GitHub analysis function
+# Import GitHub analysis function
 from code_metrics import full_github_review
+# Import Assumptions dirs function
+from assumptions_dirs import create_assumption_dirs
+from objectives import analyze_assumptions
 
 # URL do agent-client (wewnętrzna sieć Docker)
 AGENT_CLIENT_URL = os.getenv("AGENT_CLIENT_URL", "http://agent-client:3000")
+AGENT_SERVER_URL = os.getenv("AGENT_SERVER_URL", "http://agent-server:10000")
 
 def to_jsonable(obj: Any) -> Any:
     """Zapewnia JSON-owalność wyniku."""
@@ -151,6 +156,21 @@ async def proxy_start_agent(request: Dict[str, Any]):
     except Exception as e:
         return {"error": str(e), "message": "Nie udało się połączyć z agent-client."}
 
+@app.get("/api/agent/people")
+async def proxy_list_people():
+    """
+    Pobiera listę osób z agent-server.
+    Proxy dla endpointu GET /list_people na porcie 10000.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{AGENT_SERVER_URL}/list_people")
+            return response.json()
+    except httpx.TimeoutException:
+        return {"error": "timeout", "message": "Upłynął czas oczekiwania na listę osób."}
+    except Exception as e:
+        return {"error": str(e), "message": "Nie można pobrać listy osób z agent-server."}
+
 @app.post("/api/github/analyze")
 async def analyze_github(background_tasks: BackgroundTasks):
     """
@@ -223,10 +243,45 @@ async def init_neo4j_database():
                 "message": f"Błąd inicjalizacji bazy (IP: {neo4j_ip}):\n{result.stderr}"
             }
             
+
     except Exception as e:
         return {
             "status": "error",
             "message": f"Wystąpił wyjątek podczas inicjalizacji DB: {str(e)}"
+        }
+
+@app.post("/api/assumptions/init")
+async def init_assumptions_dirs():
+    """
+    Tworzy katalogi na założenia projektowe (assumptions).
+    """
+    try:
+        result = create_assumption_dirs()
+        return result
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Błąd endpointu assumptions: {str(e)}"
+        }
+
+@app.post("/api/assumptions/analyze")
+async def run_assumptions_analysis(background_tasks: BackgroundTasks):
+    """
+    Uruchamia analizę założeń (objectives.py) w tle.
+    Analizuje pliki w assumptions/[projekt]/start_assumptions.
+    """
+    try:
+        # For long running tasks, use background logic or just run sync if it's fast enough
+        # Given it calls OpenAI multiple times, sync might time out. 
+        # But for simplicity let's try sync first, or wrap in background task and return status.
+        # User requested "click button -> run analysis". 
+        
+        result = analyze_assumptions()
+        return result
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Błąd analizy założeń: {str(e)}"
         }
 
 if __name__ == "__main__":

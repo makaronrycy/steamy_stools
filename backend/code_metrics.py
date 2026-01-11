@@ -549,6 +549,9 @@ def full_github_review() -> None:
 
 
     for owner, project_name, branch, name, api_key, clean_url in zip(owners, project_names, branches, names, api_keys, clean_urls):
+        
+        current_project_key = project_name
+        print(f"\nProcessing Project: {name} (Key: {current_project_key})")
 
         remove_repo_dir(REPO_DIR)
 
