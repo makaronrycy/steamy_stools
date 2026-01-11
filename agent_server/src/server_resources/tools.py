@@ -1,4 +1,3 @@
-from ..neo4j_retriever import Neo4jRetriever
 from .. import MCP_SERVER
 from .models import (
     NameEntity, Message,
@@ -8,18 +7,34 @@ from .models import (
     GetStudentCompletionStatusRequest, IdentifyTeammateByNameRequest,
     SetSelfGradeRequest, SetTeammateGradeRequest, SetLeaderGradeRequest,
     SetProjectGradeRequest, SetProjectObjectivesGradeRequest,
+    SetOpenAnswerRequest,
 )
 from starlette.requests import Request
 from fastmcp.server.dependencies import get_http_request
+from ..neo4j_retriever import Neo4jRetriever
+import json
 
-@MCP_SERVER.tool(
-    name="example_tool",
-    description="An example tool that does something useful.",
-    tags=set(['example', 'utility']),
-)
-async def example_tool(param: Message) -> str:
-    # Implement the tool's functionality here
-    return f"Tool executed with param: {param.content}"
+# 🔥 MOCKUP DATABASE - WSZYSTKO W PAMIĘCI
+MOCK_STUDENTS = {
+    "2001": {"name": "Jan", "surname": "Kowalski", "index": "2001", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "leader"},
+    "2002": {"name": "Anna", "surname": "Nowak", "index": "2002", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
+    "2003": {"name": "Piotr", "surname": "Wiśniewski", "index": "2003", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
+    "2004": {"name": "Maria", "surname": "Kowalczyk", "index": "2004", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
+    "2005": {"name": "Tomasz", "surname": "Kamiński", "index": "2005", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
+    "2006": {"name": "Katarzyna", "surname": "Lewandowska", "index": "2006", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "leader"},
+    "2007": {"name": "Michał", "surname": "Zieliński", "index": "2007", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
+    "2008": {"name": "Magdalena", "surname": "Szymańska", "index": "2008", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
+    "2009": {"name": "Jakub", "surname": "Woźniak", "index": "2009", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
+    "2010": {"name": "Alicja", "surname": "Dąbrowska", "index": "2010", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
+}
+
+MOCK_GRADES = {
+    "self": {},  # {student_index: {"grade": 4.5, "description": "..."}}
+    "teammate": {},  # {f"{grader_index}_{graded_index}": {"grade": 4.0, "description": "..."}}
+    "leader": {},  # {f"{grader_index}_{project_id}": {"grade": 4.0, "description": "..."}}
+    "project": {},  # {f"{grader_index}_{project_id}": {"grade": 4.0, "description": "..."}}
+    "objectives": {},  # {f"{grader_index}_{project_id}": {"grade": 4.0, "description": "..."}}
+}
 
 
 #     _   ____________  __ __  _      __              __    
@@ -121,8 +136,8 @@ async def get_project_members_tool(param: GetProjectMembersRequest) -> str:
 
 @MCP_SERVER.tool(
     name="get_user_info_tool",
-    description="Zwraca podstawowe informacje o użytkowniku.",
-    tags=set(['retrieval', 'user']),
+    description="Pobiera info o użytkowniku.",
+    tags=set(['retrieval']),
 )
 async def get_user_info_tool() -> str:
     try:
@@ -130,6 +145,11 @@ async def get_user_info_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
+<<<<<<< agent_flow
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        info = retriever.get_user_info(index=user_index)
+=======
             return "ERROR: 'user_index' header not found"
             
         with retriever.driver.session() as session:
@@ -140,16 +160,26 @@ async def get_user_info_tool() -> str:
              return f"No user found for index {user_index}"
 
         info = retriever.get_user_info(name=user_name)
+>>>>>>> main
         retriever.close()
+
         if not info:
-            return f"No user found for index {user_index}"
-        return (
-            f"User {user_index}: {info['name']} {info['surname']}\n"
-            f"GitHub: {info['github']}\n"
-            f"Project: {info['project_id']} ({info['project_name']})"
-        )
+            return json.dumps({"error": f"No user found for index {user_index}"}, ensure_ascii=False)
+
+        
+        payload = {
+            "index": user_index,
+            "name": info.get("name"),
+            "surname": info.get("surname"),
+            "github": info.get("github"),
+            "project_id": info.get("project_id"),
+            "project_name": info.get("project_name"),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 
 @MCP_SERVER.tool(
@@ -192,9 +222,10 @@ async def get_ungraded_members_tool() -> str:
         return f"Ungraded teammates for {user_index}: {lst}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+    
 @MCP_SERVER.tool(
     name="get_random_ungraded_member_tool",
-    description="Zwraca losowego nieocenionego kolegę z zespołu.",
+    description="Zwraca (deterministycznie) kolejnego nieocenionego członka zespołu.",
     tags=set(['retrieval', 'progress']),
 )
 async def get_random_ungraded_member_tool() -> str:
@@ -202,7 +233,8 @@ async def get_random_ungraded_member_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-            return "ERROR: 'user_index' header not found"
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
         retriever = Neo4jRetriever()
         
         with retriever.driver.session() as session:
@@ -214,11 +246,13 @@ async def get_random_ungraded_member_tool() -> str:
 
         member = retriever.get_random_ungraded_member(name=user_name)
         retriever.close()
-        if not member:
-            return f"All teammates have been graded by {user_index}"
-        return f"Random ungraded teammate for {user_index}: {member}"
+
+        # Zwracamy JSON: dict albo null
+        return json.dumps(member, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 @MCP_SERVER.tool(
     name="has_graded_all_projects_tool",
@@ -248,7 +282,7 @@ async def has_graded_all_projects_tool() -> str:
 
 @MCP_SERVER.tool(
     name="get_leader_info_tool",
-    description="Zwraca indeks lidera projektu użytkownika.",
+    description="Zwraca dane lidera projektu użytkownika oraz project_id potrzebny do zapisania oceny.",
     tags=set(['retrieval', 'role']),
 )
 async def get_leader_info_tool() -> str:
@@ -256,31 +290,21 @@ async def get_leader_info_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-            return "ERROR: 'user_index' header not found"
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
         retriever = Neo4jRetriever()
-        
-        with retriever.driver.session() as session:
-            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
-            user_name = res["name"] if res else None
-            
-        if not user_name:
-             return f"No user found for index {user_index}"
-
-        leader_data = retriever.get_leader_of_student(name=user_name)
-        leader_index = leader_data.get("index") if leader_data else None
-        leader_name = leader_data.get("name") if leader_data else None
-        leader_surname = leader_data.get("surname") if leader_data else None
-
+        leader_data = retriever.get_leader_of_student(index=user_index)
         retriever.close()
-        if not leader_index:
-            return f"No leader found for user {user_index}"
-        return f"Leader of user {user_index} is {leader_index}, {leader_name} {leader_surname}"
+
+        return json.dumps(leader_data, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 @MCP_SERVER.tool(
     name="get_ungraded_projects_tool",
-    description="Zwraca projekty, których użytkownik jeszcze nie ocenił.",
+    description="Zwraca listę nieocenionych projektów.",
     tags=set(['retrieval', 'progress']),
 )
 async def get_ungraded_projects_tool() -> str:
@@ -288,7 +312,8 @@ async def get_ungraded_projects_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-            return "ERROR: 'user_index' header not found"
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
         retriever = Neo4jRetriever()
         
         with retriever.driver.session() as session:
@@ -300,15 +325,18 @@ async def get_ungraded_projects_tool() -> str:
 
         lst = retriever.get_ungraded_projects(name=user_name)
         retriever.close()
-        return f"Ungraded projects for {user_index}: {lst}"
+
+        return json.dumps(lst, ensure_ascii=False)
+
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 
 @MCP_SERVER.tool(
     name="get_student_completion_status_tool",
-    description="Zwraca status kompletności ocen studenta.",
-    tags=set(['retrieval', 'status']),
+    description="Zwraca status kompletności.",
+    tags=set(['retrieval']),
 )
 async def get_student_completion_status_tool() -> str:
     try:
@@ -365,10 +393,17 @@ async def get_next_required_state_tool() -> dict:
             next_state_info["last_state"] = session.get("last_state")
             next_state_info["session_id"] = session.get("session_id")
             next_state_info["current_state_in_session"] = session.get("current_state")
+            next_state_info["pending_target_json"] = session.get("pending_target_json")
+            next_state_info["pending_substate_json"] = session.get("pending_substate_json")
+
         else:
             next_state_info["last_state"] = None
             next_state_info["session_id"] = None
             next_state_info["current_state_in_session"] = None
+            next_state_info["pending_target_json"] = None
+            next_state_info["pending_substate_json"] = None
+
+
 
         # Rename 'state' to 'next_state' for clarity (it represents the next required state)
         if "state" in next_state_info:
@@ -464,20 +499,10 @@ async def save_conversation_message_tool(session_id: str, role: str, content: st
 
 @MCP_SERVER.tool(
     name="update_session_state_tool",
-    description="Updates the conversation session state after completing a state. Moves current_state to last_state and sets new current_state.",
+    description="Updates the conversation session state after completing a step. Also persists pending_target and optional pending_substate.",
     tags=set(['state', 'session', 'workflow']),
 )
-async def update_session_state_tool(new_state: str) -> dict:
-    """
-    Updates the session state after successfully completing a conversation state.
-    Moves the current state to last_state and sets the new current_state.
-
-    Args:
-        new_state: The new state to set as current_state
-
-    Returns:
-        dict: Updated session information
-    """
+async def update_session_state_tool(new_state: str, pending_target: dict | None = None, pending_substate: dict | None = None) -> dict:
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
@@ -485,19 +510,21 @@ async def update_session_state_tool(new_state: str) -> dict:
         if not user_index:
             return {"error": "'user_id' header not found"}
 
-        # Get or create session
         session = retriever.get_or_create_session(student_index=user_index)
         if not session:
             return {"error": "Could not retrieve session"}
 
-        session_id = session['session_id']
-        previous_state = session['current_state']
+        session_id = session["session_id"]
+        previous_state = session["current_state"]
 
-        # Update the session state
+        pending_target_json = json.dumps(pending_target, ensure_ascii=False) if pending_target else None
+        pending_substate_json = json.dumps(pending_substate, ensure_ascii=False) if pending_substate else None
+
         updated = retriever.update_session_state(
             session_id=session_id,
             new_state=new_state,
-            previous_state=previous_state
+            pending_target_json=pending_target_json,
+            pending_substate_json=pending_substate_json,
         )
 
         retriever.close()
@@ -508,13 +535,15 @@ async def update_session_state_tool(new_state: str) -> dict:
                 "session_id": session_id,
                 "previous_state": previous_state,
                 "new_state": new_state,
-                "last_state": previous_state  # The old current_state is now last_state
+                "pending_target_json": pending_target_json,
+                "pending_substate_json": pending_substate_json,
             }
         else:
             return {"error": "Failed to update session state"}
 
     except Exception as e:
         return {"error": str(e)}
+
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------SET METHOD TOOLS----------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -523,8 +552,8 @@ async def update_session_state_tool(new_state: str) -> dict:
 
 @MCP_SERVER.tool(
     name="set_self_grade_tool",
-    description="Narzędzie do ustawiania samooceny studenta.",
-    tags=set(['grading', 'self-assessment', 'database']),
+    description="Zapisuje samoocenę.",
+    tags=set(['grading']),
 )
 async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
     """
@@ -578,8 +607,8 @@ async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -
 
 @MCP_SERVER.tool(
     name="set_teammate_grade_tool",
-    description="Zapisuje ocenę kolegi z zespołu.",
-    tags=set(['grading', 'teammate']),
+    description="Zapisuje ocenę kolegi.",
+    tags=set(['grading']),
 )
 async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
     try:
@@ -601,8 +630,8 @@ async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
 
 @MCP_SERVER.tool(
     name="set_leader_grade_tool",
-    description="Zapisuje ocenę lidera projektu.",
-    tags=set(['grading', 'leader']),
+    description="Zapisuje ocenę lidera.",
+    tags=set(['grading']),
 )
 async def set_leader_grade_tool(param: SetLeaderGradeRequest) -> str:
     try:
@@ -626,7 +655,7 @@ async def set_leader_grade_tool(param: SetLeaderGradeRequest) -> str:
 @MCP_SERVER.tool(
     name="set_project_grade_tool",
     description="Zapisuje ocenę projektu.",
-    tags=set(['grading', 'project']),
+    tags=set(['grading']),
 )
 async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
     try:
@@ -649,8 +678,8 @@ async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
 
 @MCP_SERVER.tool(
     name="set_project_objectives_grade_tool",
-    description="Zapisuje ocenę celów projektu.",
-    tags=set(['grading', 'objectives']),
+    description="Zapisuje ocenę celów projektu użytkownika (automatycznie pobiera project_id).",
+    tags=set(['grading']),
 )
 async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequest) -> str:
     try:
@@ -659,13 +688,477 @@ async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequ
         if not user_index:
             return "ERROR: 'user_id' header not found"
         retriever = Neo4jRetriever()
+        
+        # Auto-fetch project_id from user's project
+        user_project = retriever.get_student_project(user_index)
+        if not user_project:
+            retriever.close()
+            return f"ERROR: No project found for user {user_index}"
+        project_id = user_project.get("project_id")
+        
         retriever.set_project_objectives_grade(
             grading_person_index=user_index,
-            project_id=param.project_id,
+            project_id=project_id,
             grade=param.grade,
             description=param.description
         )
         retriever.close()
-        return f"SUCCESS: objectives of project {param.project_id} graded {param.grade} by {user_index}"
+        return f"SUCCESS: objectives of project {project_id} graded {param.grade} by {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+
+
+@MCP_SERVER.tool(
+    name="set_masters_intent_tool",
+    description="Zapisuje odpowiedź na pytanie o pozostanie na magisterce.",
+    tags=set(['grading', 'interview', 'open_answer']),
+)
+async def set_masters_intent_tool(param: SetOpenAnswerRequest) -> str:
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
+
+        retriever = Neo4jRetriever()
+        data = param.model_dump()
+        retriever.set_open_answer(
+            student_index=user_index,
+            question_type="masters_intent",
+            answer=data["answer"],
+        )
+        retriever.close()
+        return f"SUCCESS: masters_intent saved for student {user_index}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+
+
+@MCP_SERVER.tool(
+    name="set_study_program_feedback_tool",
+    description="Zapisuje uwagi do kierunku studiów.",
+    tags=set(['grading', 'interview', 'open_answer']),
+)
+async def set_study_program_feedback_tool(param: SetOpenAnswerRequest) -> str:
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
+
+        retriever = Neo4jRetriever()
+        data = param.model_dump()
+        retriever.set_open_answer(
+            student_index=user_index,
+            question_type="study_program_feedback",
+            answer=data["answer"],
+        )
+        retriever.close()
+        return f"SUCCESS: study_program_feedback saved for student {user_index}"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
+    
+@MCP_SERVER.tool(
+    name="check_teammate_outlier_tool",
+    description="Checks if current user's teammate grade is an outlier vs peers. Returns JSON.",
+    tags=set(['retrieval', 'analysis']),
+)
+async def check_teammate_outlier_tool(graded_person_index: str, threshold: float = 1.0, min_peers: int = 3) -> str:
+    try:
+        request = get_http_request()
+        grader_index = request.headers.get("user_id")
+        if not grader_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+
+        # all grades given to graded_person_index
+        grades = retriever.get_member_grades(index=str(graded_person_index)) or []
+
+        # find user's latest answer meta (also tells if followup already done)
+        meta = retriever.get_latest_teammate_answer_meta(grading_person_index=str(grader_index), graded_person_index=str(graded_person_index))
+        if not meta or meta.get("grade") is None:
+            retriever.close()
+            return json.dumps({"eligible": False, "is_outlier": False, "reason": "No user grade found yet."}, ensure_ascii=False)
+
+        if meta.get("outlier_followup_done"):
+            retriever.close()
+            return json.dumps({"eligible": True, "is_outlier": False, "reason": "Outlier follow-up already done."}, ensure_ascii=False)
+
+        user_grade = float(meta["grade"])
+
+        peers = []
+        for g in grades:
+            try:
+                if str(g.get("grader_index")) == str(grader_index):
+                    continue
+                if g.get("grade") is None:
+                    continue
+                peers.append(float(g["grade"]))
+            except Exception:
+                continue
+
+        if len(peers) < int(min_peers):
+            retriever.close()
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": f"Not enough peer grades (need {min_peers}, have {len(peers)}).",
+                "user_grade": user_grade,
+                "peer_count": len(peers),
+            }, ensure_ascii=False)
+
+        peers_sorted = sorted(peers)
+        n = len(peers_sorted)
+        if n % 2 == 1:
+            median = peers_sorted[n // 2]
+        else:
+            median = (peers_sorted[n // 2 - 1] + peers_sorted[n // 2]) / 2.0
+
+        mean = sum(peers_sorted) / n
+        diff = user_grade - median
+
+        is_outlier = abs(diff) >= float(threshold)
+
+        followup = None
+        if is_outlier:
+            direction = "wyżej" if diff > 0 else "niżej"
+            followup = (
+                f"Widzę, że dałeś/aś ocenę **{user_grade:.1f}**, a mediana ocen innych osób to około **{median:.1f}** "
+                f"(Twoja ocena jest {direction}). Możesz krótko wyjaśnić, **co konkretnie** uzasadnia tę różnicę? "
+                f"Podaj 1–2 przykłady zachowań/kontrybucji tej osoby."
+            )
+
+        retriever.close()
+        return json.dumps({
+            "eligible": True,
+            "is_outlier": is_outlier,
+            "user_grade": user_grade,
+            "peer_count": n,
+            "peer_median": median,
+            "peer_mean": mean,
+            "threshold": float(threshold),
+            "followup_question": followup,
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+    
+@MCP_SERVER.tool(
+    name="append_teammate_outlier_followup_tool",
+    description="Appends outlier follow-up to the latest teammate assessment Answer for (grader->graded).",
+    tags=set(['set', 'write']),
+)
+async def append_teammate_outlier_followup_tool(graded_person_index: str, followup: str) -> str:
+    try:
+        request = get_http_request()
+        grader_index = request.headers.get("user_id")
+        if not grader_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        ok = retriever.append_teammate_outlier_followup(
+            grading_person_index=str(grader_index),
+            graded_person_index=str(graded_person_index),
+            followup=followup
+        )
+        retriever.close()
+
+        return json.dumps({"success": bool(ok)}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------ASSUMPTION TOOLS----------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+@MCP_SERVER.tool(
+    name="get_unevaluated_assumptions_tool",
+    description="Pobiera listę założeń projektowych, które student jeszcze nie ocenił.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_unevaluated_assumptions_tool() -> str:
+    """
+    Returns list of assumptions the current user hasn't evaluated yet.
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        assumptions = retriever.get_unevaluated_assumptions(student_index=str(user_index))
+        retriever.close()
+
+        return json.dumps(assumptions, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="get_project_assumptions_tool",
+    description="Pobiera wszystkie założenia projektowe dla danego projektu.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_project_assumptions_tool(project_id: str) -> str:
+    """
+    Returns all assumptions for a specific project.
+    """
+    try:
+        retriever = Neo4jRetriever()
+        assumptions = retriever.get_project_assumptions(project_id=project_id)
+        retriever.close()
+
+        return json.dumps(assumptions, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="set_assumption_evaluation_tool",
+    description="Zapisuje ocenę założenia projektowego przez studenta (fulfilled: true/false + explanation).",
+    tags=set(['set', 'write', 'assumptions']),
+)
+async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, explanation: str) -> str:
+    """
+    Save a student's evaluation of a project assumption.
+
+    Args:
+        assumption_id: ID of the assumption being evaluated
+        fulfilled: True if assumption was fulfilled, False otherwise
+        explanation: Explanation for the evaluation
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        result = retriever.set_assumption_evaluation(
+            student_index=str(user_index),
+            assumption_id=assumption_id,
+            fulfilled=fulfilled,
+            explanation=explanation
+        )
+        retriever.close()
+
+        if result:
+            return json.dumps({
+                "success": True,
+                "student_index": result["student_index"],
+                "assumption_id": result["assumption_id"],
+                "fulfilled": result["fulfilled"],
+                "explanation": result["explanation"]
+            }, ensure_ascii=False)
+        else:
+            return json.dumps({"error": "Failed to save assumption evaluation"}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="get_assumption_evaluations_tool",
+    description="Pobiera wszystkie oceny dla danego założenia projektowego.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_assumption_evaluations_tool(assumption_id: str) -> str:
+    """
+    Returns all evaluations for a specific assumption.
+    """
+    try:
+        retriever = Neo4jRetriever()
+        evaluations = retriever.get_assumption_evaluations(assumption_id=assumption_id)
+        retriever.close()
+
+        return json.dumps(evaluations, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="get_random_unevaluated_assumption_tool",
+    description="Pobiera losowe (pierwsze) nieewaluowane założenie dla studenta.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_random_unevaluated_assumption_tool() -> str:
+    """
+    Returns the first unevaluated assumption for the current user, or null if all evaluated.
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        assumptions = retriever.get_unevaluated_assumptions(student_index=str(user_index))
+        retriever.close()
+
+        if assumptions and len(assumptions) > 0:
+            return json.dumps(assumptions[0], ensure_ascii=False)
+        else:
+            return json.dumps(None, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="check_assumption_evaluation_consensus_tool",
+    description="Sprawdza czy ocena studenta dla założeń projektu różni się od FAKTYCZNEGO stanu realizacji założeń w bazie (ground truth).",
+    tags=set(['retrieval', 'analysis', 'assumptions']),
+)
+async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -> str:
+    """
+    Checks if the current user's assumption evaluations differ from the ACTUAL fulfillment 
+    status in the database (ground truth).
+    
+    This tool compares user's answers against the real project assumption statuses,
+    NOT against peer consensus.
+
+    Args:
+        min_evaluations: Minimum number of assumptions user needs to have evaluated
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        
+        # Get user's project ID
+        project_id = retriever.get_student_project_id(str(user_index))
+        if not project_id:
+            retriever.close()
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": "Could not find user's project."
+            }, ensure_ascii=False)
+
+        # Get actual assumption status (ground truth)
+        actual_status = retriever.get_project_assumptions_status(project_id)
+        
+        if not actual_status["assumptions"]:
+            retriever.close()
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": "Project has no assumptions defined."
+            }, ensure_ascii=False)
+
+        # Get user's evaluations
+        user_evals = []
+        for assumption in actual_status["assumptions"]:
+            eval_result = retriever.get_student_assumption_evaluation(
+                student_index=str(user_index),
+                assumption_id=assumption["assumption_id"]
+            )
+            if eval_result:
+                # Skip if followup was already done for this mismatch
+                if eval_result.get("followup_done"):
+                    continue
+                    
+                user_evals.append({
+                    "assumption_id": assumption["assumption_id"],
+                    "assumption_name": assumption["name"],
+                    "user_fulfilled": eval_result["fulfilled"],
+                    "actual_fulfilled": assumption["fulfilled"],
+                    "matches_reality": eval_result["fulfilled"] == assumption["fulfilled"]
+                })
+
+        retriever.close()
+
+        if len(user_evals) < min_evaluations:
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": f"User has not evaluated enough assumptions (need {min_evaluations}, have {len(user_evals)}).",
+                "evaluations_count": len(user_evals)
+            }, ensure_ascii=False)
+
+        # Check for mismatches between user's answer and reality
+        mismatches = [e for e in user_evals if not e["matches_reality"]]
+        
+        is_outlier = len(mismatches) > 0
+        
+        followup = None
+        if is_outlier:
+            # Build natural followup question highlighting discrepancies
+            mismatch_details = []
+            for m in mismatches:
+                user_answer = "zrealizowane" if m["user_fulfilled"] else "niezrealizowane"
+                actual_answer = "zostało zrealizowane" if m["actual_fulfilled"] else "nie zostało zrealizowane"
+                mismatch_details.append(
+                    f"• **{m['assumption_name']}** – oceniłeś/aś jako {user_answer}, ale wg dokumentacji {actual_answer}"
+                )
+            
+            mismatch_text = "\n".join(mismatch_details)
+            
+            if len(mismatches) == 1:
+                followup = (
+                    f"Chwila – widzę rozbieżność:\n\n"
+                    f"{mismatch_text}\n\n"
+                    f"Skąd ta różnica? Może coś przeoczyłeś/aś, albo masz inne informacje? "
+                    f"Wyjaśnij krótko (1–2 zdania)."
+                )
+            else:
+                followup = (
+                    f"Zauważyłem kilka rozbieżności między Twoją oceną a stanem projektu:\n\n"
+                    f"{mismatch_text}\n\n"
+                    f"Możesz krótko wyjaśnić te różnice? (1–2 zdania wystarczą)"
+                )
+
+        return json.dumps({
+            "eligible": True,
+            "is_outlier": is_outlier,
+            "project_id": project_id,
+            "total_assumptions": actual_status["total"],
+            "actual_fulfilled_count": actual_status["fulfilled_count"],
+            "actual_unfulfilled_count": actual_status["unfulfilled_count"],
+            "all_actually_fulfilled": actual_status["all_fulfilled"],
+            "user_evaluations": user_evals,
+            "mismatches": mismatches,
+            "mismatch_count": len(mismatches),
+            "followup_question": followup
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="append_assumption_evaluation_followup_tool",
+    description="Dodaje dodatkowe uzasadnienie do oceny założenia (gdy wykryto różnicę z konsensusem).",
+    tags=set(['set', 'write', 'assumptions']),
+)
+async def append_assumption_evaluation_followup_tool(assumption_id: str, followup: str) -> str:
+    """
+    Appends additional explanation to an assumption evaluation (for outlier cases).
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        
+        # Append followup to the existing evaluation
+        with retriever.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption:Assumption {id: $assumption_id})
+                SET eval.followup = $followup,
+                    eval.followup_done = true,
+                    eval.explanation = coalesce(eval.explanation, "") + "\n\n[Dodatkowe uzasadnienie]: " + $followup
+                RETURN true AS ok
+            """, student_index=str(user_index), assumption_id=assumption_id, followup=followup)
+            rec = result.single()
+            ok = bool(rec and rec["ok"])
+        
+        retriever.close()
+        return json.dumps({"success": ok}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)

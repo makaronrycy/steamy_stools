@@ -49,22 +49,78 @@ class Neo4jRetriever:
     def get_node_types(self):
         return {"node_types": []}
     
+    def get_latest_teammate_answer_meta(self, grading_person_index: str, graded_person_index: str) -> dict | None:
+        """
+        Returns latest teammate_assessment answer meta for (grader -> graded).
+        Uses id(a) ordering so it works even without timestamps.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $grading_person_index})-[:answered]->(a:Answer)-[:refers_to]->(graded:Student {index: $graded_person_index})
+                WHERE a.question_type = "teammate_assessment"
+                RETURN a.grade AS grade,
+                    a.explanation AS explanation,
+                    coalesce(a.outlier_followup_done, false) AS outlier_followup_done
+                ORDER BY id(a) DESC
+                LIMIT 1
+            """, grading_person_index=grading_person_index, graded_person_index=graded_person_index)
+            rec = result.single()
+            if not rec:
+                return None
+            return {
+                "grade": rec["grade"],
+                "explanation": rec["explanation"],
+                "outlier_followup_done": rec["outlier_followup_done"],
+            }
+
+    def append_teammate_outlier_followup(self, grading_person_index: str, graded_person_index: str, followup: str) -> bool:
+        """
+        Appends outlier follow-up to the latest teammate_assessment answer and marks followup done.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (grader:Student {index: $grading_person_index})-[:answered]->(a:Answer)-[:refers_to]->(graded:Student {index: $graded_person_index})
+                WHERE a.question_type = "teammate_assessment"
+                WITH a
+                ORDER BY id(a) DESC
+                LIMIT 1
+                SET a.outlier_followup = $followup,
+                    a.outlier_followup_done = true,
+                    a.explanation = coalesce(a.explanation, "") + "\n\n[Dodatkowe uzasadnienie - outlier]: " + $followup
+                RETURN true AS ok
+            """, grading_person_index=grading_person_index, graded_person_index=graded_person_index, followup=followup)
+            rec = result.single()
+            return bool(rec and rec["ok"])
+
+    
     def get_students(self):
         with self.driver.session() as session:
             result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
             return [{"name": record["name"], "surname": record["surname"], "index": record["index"]} for record in result]
-        
-    def get_leader_of_student(self, name: str):
+    
+    def get_student_project(self, index: str):
+        """Get the project that student belongs to"""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                RETURN project.id AS project_id, project.name AS project_name
+            """, index=index)
+            record = result.single()
+            if record:
+                return {"project_id": record["project_id"], "project_name": record["project_name"]}
+            return None
+
+    def get_leader_of_student(self, index: str):
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
                 MATCH (leader:Student)-[r:belongs_to]->(project)
                 WHERE r.role = "leader"
-                RETURN leader.name AS name, leader.surname AS surname, leader.index AS index
-            """, name=name)
+                RETURN leader.name AS name, leader.surname AS surname, leader.index AS index, project.id AS project_id
+            """, index=index)
             record = result.single()
             if record:
-                return {"name": record["name"], "surname": record["surname"], "index": record["index"]}
+                return {"name": record["name"], "surname": record["surname"], "index": record["index"], "project_id": record["project_id"]}
             return None
         
     def get_project_grades(self, project_id: str):
@@ -98,34 +154,37 @@ class Neo4jRetriever:
 
     def get_member_grades(self, name: str):
         """
-        Get grades for a given member (name) [mark leader grades] 
-        -> grade, justification, grader_index, is_leader
-        
-        Args:
-            name: Name of the graded member
-            
-        Returns:
-            List of member grades with information if grader was a leader
+        Get grades for a given member (index) and mark whether grader is leader in the same project.
+        Returns: grade, explanation, grader_index, is_leader
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (graded:Student {name: $name})
+                MATCH (graded:Student {index: $index})
+                OPTIONAL MATCH (graded)-[:belongs_to]->(p:Project)
+
                 OPTIONAL MATCH (grader:Student)-[:answered]->(answer:Answer)-[:refers_to]->(graded)
                 WHERE answer.question_type = "teammate_assessment"
-                OPTIONAL MATCH (grader)-[r:belongs_to]->(project:Project)
-                OPTIONAL MATCH (graded)-[:belongs_to]->(same_project:Project)
-                WHERE project = same_project AND r.role = "leader"
+
+                // leader relationship only used for flagging, NOT filtering results
+                OPTIONAL MATCH (grader)-[lr:belongs_to {role: "leader"}]->(p)
+
                 RETURN answer.grade as grade,
-                       answer.explanation as explanation,
-                       grader.index as grader_index,
-                       CASE WHEN r.role = "leader" THEN true ELSE false END as is_leader
+                    answer.explanation as explanation,
+                    grader.index as grader_index,
+                    CASE WHEN lr IS NOT NULL THEN true ELSE false END as is_leader
                 ORDER BY grader.index
-            """, name=name)
-            
-            return [{"grade": record["grade"], 
-                    "explanation": record["explanation"], 
+            """, index=index)
+
+            return [
+                {
+                    "grade": record["grade"],
+                    "explanation": record["explanation"],
                     "grader_index": record["grader_index"],
-                    "is_leader": record["is_leader"]} for record in result]
+                    "is_leader": record["is_leader"],
+                }
+                for record in result
+            ]
+
 
     def is_leader(self, name: str):
         """
@@ -253,44 +312,31 @@ class Neo4jRetriever:
             
             return [{"index": record["ungraded_index"], "name": record["name"], "surname": record["surname"]} for record in result]
         
-    def get_random_ungraded_member(self, name: str):
+    def get_random_ungraded_member(self, index: str):
         """
-        Get a random ungraded team member
-        
-        Args:
-            name: Grader name
-            
-        Returns:
-            Dictionary with index, name, surname of a random ungraded member or None
+        Deterministic: returns the next ungraded teammate ordered by teammate.index
+        (we keep the name for compatibility with existing tools/prompts).
         """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (grader:Student {name: $name})-[:belongs_to]->(project:Project)
                 MATCH (teammate:Student)-[:belongs_to]->(project)
-                WHERE teammate.name <> $name
-                WITH grader, teammate
-                OPTIONAL MATCH (grader)-[:answered]->(answer:Answer)-[:refers_to]->(teammate)
-                WHERE answer.question_type = "teammate_assessment"
-                WITH teammate, answer
-                WHERE answer IS NULL
-                RETURN 
-                    teammate.index as ungraded_index,
-                    teammate.name as name,
-                    teammate.surname as surname
-                ORDER BY rand()
-                LIMIT 1
-            """, name=name)
-            
-            record = result.single()
-            if record:
-                return {
-                    "index": record["ungraded_index"],
-                    "name": record["name"],
-                    "surname": record["surname"]
+                WHERE teammate.index <> $index
+                AND NOT EXISTS {
+                    MATCH (grader)-[:answered]->(a:Answer)-[:refers_to]->(teammate)
+                    WHERE a.question_type = "teammate_assessment"
                 }
-            return None
-        
-    def has_graded_all_projects(self, name: str):
+                RETURN teammate.index as index, teammate.name as name, teammate.surname as surname
+                ORDER BY teammate.index
+                LIMIT 1
+            """, index=index)
+
+            record = result.single()
+            if not record:
+                return None
+            return {"index": record["index"], "name": record["name"], "surname": record["surname"]}
+
+    def has_graded_all_projects(self, index: str):
         """
         Check if user has graded all projects
         
@@ -596,6 +642,75 @@ class Neo4jRetriever:
                 "is_complete": has_grade and has_explanation,
                 "project_id": proj_id
             }
+
+            # 6. MASTERS INTENT (open answer)
+            masters_result = session.run("""
+                MATCH (student:Student {index: $index})
+                OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
+                WHERE answer.question_type = "masters_intent"
+                RETURN answer.explanation as explanation
+            """, index=index)
+            masters_record = masters_result.single()
+            masters_expl = masters_record["explanation"] if masters_record else None
+            masters_has_answer = masters_expl is not None and str(masters_expl).strip() != ""
+            result["masters_intent"] = {
+                "has_answer": masters_has_answer,
+                "is_complete": masters_has_answer,
+            }
+
+            # 7. STUDY PROGRAM FEEDBACK (open answer)
+            feedback_result = session.run("""
+                MATCH (student:Student {index: $index})
+                OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
+                WHERE answer.question_type = "study_program_feedback"
+                RETURN answer.explanation as explanation
+            """, index=index)
+            feedback_record = feedback_result.single()
+            feedback_expl = feedback_record["explanation"] if feedback_record else None
+            feedback_has_answer = feedback_expl is not None and str(feedback_expl).strip() != ""
+            result["study_program_feedback"] = {
+                "has_answer": feedback_has_answer,
+                "is_complete": feedback_has_answer,
+            }
+
+            # 8. ASSUMPTION EVALUATIONS
+            # Get all assumptions for the student's project and check which are evaluated
+            assumptions_result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (project)-[:has_assumption]->(assumption:Assumption)
+                OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
+                RETURN assumption.id as assumption_id,
+                       assumption.name as name,
+                       eval.fulfilled as fulfilled,
+                       eval.explanation as explanation
+                ORDER BY assumption.id
+            """, index=index)
+
+            all_assumptions = []
+            incomplete_assumptions = []
+            completed_assumptions = 0
+            
+            for record in assumptions_result:
+                assumption_info = {
+                    "assumption_id": record["assumption_id"],
+                    "name": record["name"],
+                    "has_evaluation": record["fulfilled"] is not None,
+                    "has_explanation": record["explanation"] is not None and str(record["explanation"]).strip() != ""
+                }
+                all_assumptions.append(assumption_info)
+                
+                if assumption_info["has_evaluation"] and assumption_info["has_explanation"]:
+                    completed_assumptions += 1
+                else:
+                    incomplete_assumptions.append(assumption_info)
+            
+            total_assumptions = len(all_assumptions)
+            result["assumption_evaluations"] = {
+                "total_required": total_assumptions,
+                "completed": completed_assumptions,
+                "is_complete": completed_assumptions == total_assumptions and total_assumptions > 0,
+                "incomplete_details": incomplete_assumptions
+            }
             
             # 6. ASSUMPTION EVALUATIONS (only for system_accepted = false)
             # Get all assumptions that the system rejected (require student evaluation)
@@ -646,6 +761,8 @@ class Neo4jRetriever:
                 result["project_assessments"]["is_complete"] and
                 result["leadership_assessment"]["is_complete"] and
                 result["objectives_assessment"]["is_complete"] and
+                result["masters_intent"]["is_complete"] and
+                result["study_program_feedback"]["is_complete"] and
                 result["assumption_evaluations"]["is_complete"]
             )
             
@@ -735,20 +852,9 @@ class Neo4jRetriever:
         return self.create_conversation_session(student_index)
 
     def create_conversation_session(self, student_index: str):
-        """
-        Create new conversation session for a student
-
-        Args:
-            student_index: Student index
-
-        Returns:
-            dict: Session information
-        """
         import uuid
-
-        session_id = str(uuid.uuid4())
-
         with self.driver.session() as session:
+            session_id = str(uuid.uuid4())
             result = session.run("""
                 MATCH (student:Student {index: $student_index})
                 CREATE (cs:ConversationSession {
@@ -756,6 +862,8 @@ class Neo4jRetriever:
                     student_index: $student_index,
                     current_state: "initial",
                     last_state: null,
+                    pending_target_json: null,
+                    pending_substate_json: null,
                     started_at: datetime(),
                     last_updated: datetime(),
                     is_active: true,
@@ -763,14 +871,16 @@ class Neo4jRetriever:
                 })
                 CREATE (student)-[:HAS_SESSION]->(cs)
                 RETURN cs.session_id as session_id,
-                       cs.student_index as student_index,
-                       cs.current_state as current_state,
-                       cs.last_state as last_state,
-                       cs.started_at as started_at,
-                       cs.last_updated as last_updated,
-                       cs.is_active as is_active,
-                       cs.completed as completed
-            """, session_id=session_id, student_index=student_index)
+                    cs.student_index as student_index,
+                    cs.current_state as current_state,
+                    cs.last_state as last_state,
+                    cs.pending_target_json as pending_target_json,
+                    cs.pending_substate_json as pending_substate_json,
+                    cs.started_at as started_at,
+                    cs.last_updated as last_updated,
+                    cs.is_active as is_active,
+                    cs.completed as completed
+            """, student_index=student_index, session_id=session_id)
 
             record = result.single()
             if record:
@@ -779,35 +889,32 @@ class Neo4jRetriever:
                     "student_index": record["student_index"],
                     "current_state": record["current_state"],
                     "last_state": record["last_state"],
+                    "pending_target_json": record["pending_target_json"],
+                    "pending_substate_json": record["pending_substate_json"],
                     "started_at": record["started_at"],
                     "last_updated": record["last_updated"],
                     "is_active": record["is_active"],
-                    "completed": record["completed"]
+                    "completed": record["completed"],
                 }
-            return None
+        return None
+
+
 
     def get_active_session(self, student_index: str):
-        """
-        Get active conversation session for a student
-
-        Args:
-            student_index: Student index
-
-        Returns:
-            dict or None: Session information if active session exists
-        """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:HAS_SESSION]->(cs:ConversationSession)
                 WHERE cs.is_active = true AND cs.completed = false
                 RETURN cs.session_id as session_id,
-                       cs.student_index as student_index,
-                       cs.current_state as current_state,
-                       cs.last_state as last_state,
-                       cs.started_at as started_at,
-                       cs.last_updated as last_updated,
-                       cs.is_active as is_active,
-                       cs.completed as completed
+                    cs.student_index as student_index,
+                    cs.current_state as current_state,
+                    cs.last_state as last_state,
+                    cs.pending_target_json as pending_target_json,
+                    cs.pending_substate_json as pending_substate_json,
+                    cs.started_at as started_at,
+                    cs.last_updated as last_updated,
+                    cs.is_active as is_active,
+                    cs.completed as completed
                 ORDER BY cs.last_updated DESC
                 LIMIT 1
             """, student_index=student_index)
@@ -819,43 +926,46 @@ class Neo4jRetriever:
                     "student_index": record["student_index"],
                     "current_state": record["current_state"],
                     "last_state": record["last_state"],
+                    "pending_target_json": record["pending_target_json"],
+                    "pending_substate_json": record["pending_substate_json"],
                     "started_at": record["started_at"],
                     "last_updated": record["last_updated"],
                     "is_active": record["is_active"],
-                    "completed": record["completed"]
+                    "completed": record["completed"],
                 }
-            return None
+        return None
 
-    def update_session_state(self, session_id: str, new_state: str, previous_state = None):
+
+
+    def update_session_state(
+        self,
+        session_id: str,
+        new_state: str,
+        pending_target_json: str | None = None,
+        pending_substate_json: str | None = None,
+    ):
         """
-        Update current state of conversation session
-
-        Args:
-            session_id: Session ID
-            new_state: New state name
-            previous_state: Optional - the state we're transitioning from (becomes last_state)
-
-        Returns:
-            bool: True if update successful
+        Atomically: last_state <- current_state, current_state <- new_state,
+        pending_target_json <- pending_target_json, pending_substate_json <- pending_substate_json
         """
         with self.driver.session() as session:
-            if previous_state is not None:
-                result = session.run("""
-                    MATCH (cs:ConversationSession {session_id: $session_id})
-                    SET cs.last_state = cs.current_state,
-                        cs.current_state = $new_state,
-                        cs.last_updated = datetime()
-                    RETURN cs.session_id as session_id
-                """, session_id=session_id, new_state=new_state)
-            else:
-                result = session.run("""
-                    MATCH (cs:ConversationSession {session_id: $session_id})
-                    SET cs.current_state = $new_state,
-                        cs.last_updated = datetime()
-                    RETURN cs.session_id as session_id
-                """, session_id=session_id, new_state=new_state)
-
+            result = session.run("""
+                MATCH (cs:ConversationSession {session_id: $session_id})
+                SET cs.last_state = cs.current_state,
+                    cs.current_state = $new_state,
+                    cs.pending_target_json = $pending_target_json,
+                    cs.pending_substate_json = $pending_substate_json,
+                    cs.last_updated = datetime()
+                RETURN cs.session_id as session_id
+            """,
+                session_id=session_id,
+                new_state=new_state,
+                pending_target_json=pending_target_json,
+                pending_substate_json=pending_substate_json,
+            )
             return result.single() is not None
+
+
 
     def save_conversation_message(self, session_id: str, role: str, content: str, state_at_time: str):
         """
@@ -1029,7 +1139,7 @@ class Neo4jRetriever:
             is_user_leader = self.is_leader(name)
             if not is_user_leader:  # Only non-leaders evaluate leadership
                 return {
-                    "next_state": "evaluate_leadership",
+                    "next_state": "evaluate_leader_grade",
                     "reason": "leadership_assessment_incomplete",
                     "details": {
                         "leader_index": status["leadership_assessment"]["leader_index"]
@@ -1275,20 +1385,39 @@ class Neo4jRetriever:
             )
             return result.single()
 
+    def set_open_answer(self, student_index: str, question_type: str, answer: str):
+        """Save a free-form interview answer linked to the student. Uses MERGE to prevent duplicates."""
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})
+                MERGE (student)-[:answered]->(a:Answer {question_type: $question_type})-[:refers_to]->(student)
+                ON CREATE SET a.grade = null, a.explanation = $answer
+                ON MATCH SET a.explanation = $answer
+                RETURN a.question_type as question_type,
+                       a.explanation as explanation
+            """, student_index=student_index, question_type=question_type, answer=answer)
+            return result.single()
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------ASSUMPTION METHODS--------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
     def create_project_assumption(
         self,
-        project_id: str,
-        description: str,
-        system_accepted: bool
+        project_id,
+        description: str = "",
+        system_accepted
     ):
         """
-        Create a project assumption from automated analysis results
-        
+        Create a project assumption with its actual fulfillment status (ground truth)
+
         Args:
             project_id: Project ID
-            description: Description of the assumption (requirement text)
-            system_accepted: Whether the automated system accepted this assumption as fulfilled
-            
+            assumption_id: Unique ID for the assumption
+            name: Short name of the assumption
+            description: Detailed description of the assumption
+            fulfilled: True if assumption was actually fulfilled, False otherwise (ground truth)
+
         Returns:
             Created assumption information
         """
@@ -1739,6 +1868,8 @@ class Neo4jRetriever:
         """
         import csv
         
+        projects_created = set()
+        
         with self.driver.session() as session:
             # First clear database (optional - uncomment if you want)
             # session.run("MATCH (n) DETACH DELETE n")
@@ -1836,7 +1967,9 @@ if __name__ == "__main__":
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------FILL THE BASE---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
     retriever.clear_database()
     
     # Option 1: Fill database without grades (just students, projects, and assumptions from JSON)
