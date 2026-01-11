@@ -1830,8 +1830,14 @@ class Neo4jRetriever:
         try:
             with open(data_csv_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
-                for row in reader:
-                    project_name_to_id[row['project_name']] = row['project_id']
+                if not reader.fieldnames or 'project_name' not in reader.fieldnames:
+                    print(
+                        f"Warning: {data_csv_path} missing 'project_name' column, "
+                        "will use assumptions without project mapping"
+                    )
+                else:
+                    for row in reader:
+                        project_name_to_id[row['project_name']] = row['project_id']
         except FileNotFoundError:
             print(f"Warning: {data_csv_path} not found, will use assumptions without project mapping")
         
@@ -2157,19 +2163,19 @@ if __name__ == "__main__":
     # Option 1: Fill database without grades (just students, projects, and assumptions from JSON)
     # JSON file maps assumptions to projects using "projekt" field
     retriever.fill_database_no_grades(
-        "src/neo4j_retriever/data_no_grades.csv",
-        "src/neo4j_retriever/raport_zgodnosci.json"
+        "src/neo4j_retriever/data_no_grades_presentation.csv",
+        "src/neo4j_retriever/raport.json"
     )
     
-    # Option 2: Generate combined CSV and fill with grades
+    #Option 2: Generate combined CSV and fill with grades
     # Step 1: Generate grades_with_assumptions.csv from grades.csv + raport_zgodnosci.json
     # Automatically maps assumptions to projects based on "projekt" field in JSON
-    # Neo4jRetriever.generate_grades_with_assumptions(
-    #     grades_csv_path="src/neo4j_retriever/grades.csv",
-    #     assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
-    #     output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
-    # )
+    Neo4jRetriever.generate_grades_with_assumptions(
+        grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
+        assumptions_json_path="src/neo4j_retriever/raport.json",
+        output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
+    )
     # Step 2: Fill database from combined CSV
-    # retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
+    retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
     
     retriever.close()

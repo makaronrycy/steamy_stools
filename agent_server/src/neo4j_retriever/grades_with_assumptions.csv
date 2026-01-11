@@ -1,0 +1,101 @@
+type,grader_id,project_id,graded_id,grade,explanation
+self_assessment,193194,1,,5.0,Byłem dobrze zorganizowany i realizowałem zadania zgodnie z harmonogramem
+project_assessment,193194,1,,5.0,Projekt naszej grupy spełnił wszystkie założenia
+project_assessment,193194,2,,4.0,Projekt drugiej grupy wyglądał profesjonalnie i miał dobry interfejs
+objectives_assessment,193194,1,,5.0,Cele projektu zostały w pełni osiągnięte
+leadership_assessment,193194,1,193194,5.0,Lider dobrze motywował zespół i rozwiązywał konflikty
+teammate_assessment,193194,1,193732,4.0,Anna zawsze dostarczała swoje zadania na czas
+teammate_assessment,193194,1,188943,5.0,Piotr miał ciekawe pomysły na architekturę systemu
+teammate_assessment,193194,1,190518,3.0,Maria potrzebowała wsparcia przy konfiguracji środowiska
+teammate_assessment,193194,1,199785,4.0,Tomasz dobrze testował aplikację
+assumption_evaluation,193194,1,,1,Główne założenia projektu zostały spełnione - dobra organizacja i terminowość
+self_assessment,193732,1,,4.0,Zaangażowałam się w każdy etap projektu
+project_assessment,193732,1,,4.0,"Projekt był stabilny, choć wymagał drobnych poprawek"
+project_assessment,193732,2,,5.0,Projekt drugiej grupy był bardzo dopracowany wizualnie
+objectives_assessment,193732,1,,4.0,Cele projektu zostały prawie w pełni osiągnięte
+leadership_assessment,193732,1,193194,5.0,Lider jasno komunikował oczekiwania
+teammate_assessment,193732,1,193194,5.0,Jan doskonale koordynował zespół
+teammate_assessment,193732,1,188943,4.0,Piotr był odpowiedzialny i dokładny
+teammate_assessment,193732,1,190518,3.0,Maria potrzebowała więcej czasu na zadania
+teammate_assessment,193732,1,199785,4.0,Tomasz dobrze współpracował przy testach
+assumption_evaluation,193732,1,,1,"Założenia projektowe zostały spełnione, praca zespołowa była dobra"
+self_assessment,188943,1,,3.0,"Starałem się, ale mogłem być bardziej aktywny"
+project_assessment,188943,1,,4.0,"Projekt był dobrze wykonany, choć wymagał korekt"
+project_assessment,188943,2,,5.0,Projekt drugiej grupy imponował funkcjonalnością
+objectives_assessment,188943,1,,3.0,Nie wszystkie cele zostały osiągnięte
+leadership_assessment,188943,1,193194,4.0,"Lider był skuteczny, ale czasem zbyt wymagający"
+teammate_assessment,188943,1,193194,5.0,Jan był bardzo pomocny
+teammate_assessment,188943,1,193732,4.0,Anna była dokładna i skrupulatna
+teammate_assessment,188943,1,190518,3.0,Maria czasem miała trudności z Gitem
+teammate_assessment,188943,1,199785,4.0,Tomasz dobrze zarządzał testami
+assumption_evaluation,188943,1,,0,"Nie wszystkie założenia zostały spełnione, były problemy z harmonogramem"
+self_assessment,190518,1,,4.0,Wykonałam wszystkie swoje zadania
+project_assessment,190518,1,,5.0,Projekt grupy działał zgodnie z planem
+project_assessment,190518,2,,4.0,"Projekt drugiej grupy był ciekawy, ale mniej rozbudowany"
+objectives_assessment,190518,1,,4.0,Cele projektu zostały zrealizowane
+leadership_assessment,190518,1,193194,5.0,Lider był komunikatywny i pomocny
+teammate_assessment,190518,1,193194,5.0,Jan zawsze doradzał technicznie
+teammate_assessment,190518,1,193732,4.0,Anna dobrze planowała prace
+teammate_assessment,190518,1,188943,4.0,"Piotr był solidny, ale trochę spóźniał się z kodem"
+teammate_assessment,190518,1,199785,3.0,Tomasz czasem nie odpowiadał na wiadomości
+assumption_evaluation,190518,1,,1,"Założenia projektowe spełnione, dobra komunikacja w zespole"
+self_assessment,199785,1,,5.0,Zrealizowałem wszystkie swoje obowiązki
+project_assessment,199785,1,,5.0,Projekt był dopracowany i dobrze oceniony
+project_assessment,199785,2,,4.0,Projekt drugiej grupy był bardzo dobrze przemyślany
+objectives_assessment,199785,1,,4.0,Cele projektu zostały osiągnięte
+leadership_assessment,199785,1,193194,4.0,Lider dobrze planował spotkania
+teammate_assessment,199785,1,193194,5.0,Jan był świetnym liderem
+teammate_assessment,199785,1,193732,4.0,Anna była pomocna w testowaniu
+teammate_assessment,199785,1,188943,3.0,Piotr mógł częściej raportować postępy
+teammate_assessment,199785,1,190518,4.0,Maria była cierpliwa i dokładna
+assumption_evaluation,199785,1,,1,"Założenia zostały spełnione, zespół działał sprawnie"
+self_assessment,191342,2,,5.0,Projekt przebiegł bardzo dobrze
+project_assessment,191342,2,,5.0,Projekt naszej grupy spełnił wszystkie założenia
+project_assessment,191342,1,,4.0,Projekt pierwszej grupy był solidny i dobrze udokumentowany
+objectives_assessment,191342,2,,5.0,Cele projektu zostały w pełni osiągnięte
+leadership_assessment,191342,2,191342,5.0,Lider skutecznie organizował zespół
+teammate_assessment,191342,2,193398,4.0,Michał był zaangażowany i terminowy
+teammate_assessment,191342,2,193111,5.0,Magdalena stworzyła świetny interfejs
+teammate_assessment,191342,2,180758,4.0,Jakub był komunikatywny
+teammate_assessment,191342,2,188632,5.0,Alicja była bardzo pomysłowa
+assumption_evaluation,191342,2,,1,Założenia projektowe zostały w pełni zrealizowane przez zespół
+self_assessment,193398,2,,4.0,Wykonałem większość zadań terminowo
+project_assessment,193398,2,,4.0,Projekt był dobrze zrealizowany
+project_assessment,193398,1,,5.0,Projekt pierwszej grupy był bardzo innowacyjny
+objectives_assessment,193398,2,,4.0,Cele projektu zostały zrealizowane
+leadership_assessment,193398,2,191342,5.0,Lider wspierał zespół
+teammate_assessment,193398,2,191342,5.0,Katarzyna była świetną liderką
+teammate_assessment,193398,2,193111,4.0,Magdalena miała dobre pomysły
+teammate_assessment,193398,2,180758,3.0,Jakub czasem się spóźniał
+teammate_assessment,193398,2,188632,4.0,Alicja testowała dokładnie aplikację
+assumption_evaluation,193398,2,,1,"Założenia zostały spełnione, dobra współpraca w zespole"
+self_assessment,193111,2,,3.0,Mogłam poświęcić więcej czasu na testy
+project_assessment,193111,2,,4.0,Projekt był udany
+project_assessment,193111,1,,4.0,Projekt pierwszej grupy był ciekawy technicznie
+objectives_assessment,193111,2,,3.0,Nie wszystkie cele zostały dopięte
+leadership_assessment,193111,2,191342,4.0,Lider dobrze rozdzielał zadania
+teammate_assessment,193111,2,191342,5.0,Katarzyna była zorganizowana
+teammate_assessment,193111,2,193398,4.0,Michał był sumienny
+teammate_assessment,193111,2,180758,3.0,Jakub potrzebował więcej czasu
+teammate_assessment,193111,2,188632,4.0,Alicja była bardzo zaangażowana
+assumption_evaluation,193111,2,,1,"Większość założeń została spełniona, choć były pewne braki w testach"
+self_assessment,180758,2,,4.0,Byłem aktywny w komunikacji i testach
+project_assessment,180758,2,,5.0,Projekt był stabilny i wydajny
+project_assessment,180758,1,,4.0,Projekt grupy 1 miał świetny backend
+objectives_assessment,180758,2,,4.0,Założenia projektu zostały spełnione
+leadership_assessment,180758,2,191342,5.0,Liderka dobrze prowadziła zespół
+teammate_assessment,180758,2,191342,5.0,Katarzyna była świetnym liderem
+teammate_assessment,180758,2,193398,4.0,Michał był pomocny
+teammate_assessment,180758,2,193111,4.0,Magdalena szybko poprawiała błędy
+teammate_assessment,180758,2,188632,3.0,Alicja potrzebowała więcej czasu
+assumption_evaluation,180758,2,,1,"Założenia projektowe spełnione, efektywna komunikacja"
+self_assessment,188632,2,,5.0,Jestem zadowolona z efektu swojej pracy
+project_assessment,188632,2,,5.0,Projekt działał bezbłędnie
+project_assessment,188632,1,,5.0,Projekt pierwszej grupy był bardzo profesjonalny
+objectives_assessment,188632,2,,5.0,Cele projektu zostały osiągnięte w 100%
+leadership_assessment,188632,2,191342,4.0,Liderka była wspierająca i skuteczna
+teammate_assessment,188632,2,191342,4.0,Katarzyna dobrze koordynowała prace
+teammate_assessment,188632,2,193398,5.0,Michał był bardzo zaangażowany
+teammate_assessment,188632,2,193111,5.0,Magdalena przygotowała świetny interfejs
+teammate_assessment,188632,2,180758,3.0,Jakub mógł częściej zgłaszać postępy
+assumption_evaluation,188632,2,,1,Wszystkie założenia projektowe zostały w pełni spełnione
