@@ -33,31 +33,31 @@ class GetProjectGradesRequest(BaseModel):
         description="ID projektu, dla którego pobierane są oceny"
     )
 class GetMemberGradesRequest(BaseModel):
-    index: str = Field(..., description="Index ocenianego członka")
+    name: str = Field(..., description="Imię ocenianego członka")
 
 class IsLeaderRequest(BaseModel):
-    index: str = Field(..., description="Index studenta")
+    name: str = Field(..., description="Imię studenta")
 
 class GetProjectMembersRequest(BaseModel):
     project_id: str = Field(..., description="ID projektu")
 
 class GetUserInfoRequest(BaseModel):
-    index: str = Field(..., description="Index studenta")
+    name: str = Field(..., description="Imię studenta")
 
 class HasGradedAllMembersRequest(BaseModel):
-    index: str = Field(..., description="Index oceniającego")
+    name: str = Field(..., description="Imię oceniającego")
 
 class GetUngradedMembersRequest(BaseModel):
-    index: str = Field(..., description="Index oceniającego")
+    name: str = Field(..., description="Imię oceniającego")
 
 class HasGradedAllProjectsRequest(BaseModel):
-    index: str = Field(..., description="Index oceniającego")
+    name: str = Field(..., description="Imię oceniającego")
 
 class GetUngradedProjectsRequest(BaseModel):
-    index: str = Field(..., description="Index oceniającego")
+    name: str = Field(..., description="Imię oceniającego")
 
 class GetStudentCompletionStatusRequest(BaseModel):
-    index: str = Field(..., description="Index studenta")
+    name: str = Field(..., description="Imię studenta")
 
 class IdentifyTeammateByNameRequest(BaseModel):
     name: str = Field(..., description="Imię do dopasowania (case-insensitive)")
