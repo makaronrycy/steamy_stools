@@ -945,7 +945,7 @@ async def get_project_assumptions_tool(project_id: str) -> str:
     description="Zapisuje ocenę założenia projektowego przez studenta (fulfilled: true/false + explanation).",
     tags=set(['set', 'write', 'assumptions']),
 )
-async def set_assumption_evaluation_tool(assumption_description: str, fulfilled: bool, explanation: str) -> str:
+async def set_assumption_evaluation_tool(assumption_index: str, fulfilled: bool, explanation: str) -> str:
     """
     Save a student's evaluation of a project assumption.
 
@@ -963,7 +963,7 @@ async def set_assumption_evaluation_tool(assumption_description: str, fulfilled:
         retriever = Neo4jRetriever()
         result = retriever.set_assumption_evaluation(
             student_index=str(user_index),
-            assumption_description=assumption_description,
+            assumption_index=assumption_index,
             fulfilled=fulfilled,
             explanation=explanation
         )

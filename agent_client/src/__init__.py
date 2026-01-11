@@ -370,7 +370,7 @@ def get_app() -> Sanic:
             if missing_eval:
                 return f"Podaj proszę jasną odpowiedź: **TAK** (spełnione) lub **NIE** (niespełnione) dla '{assumption_name}'."
             if missing_exp:
-                return f"Możesz dopisać **dlaczego** założenia '{assumption_name}' zostały/nie zostały spełnione? 1-2 konkretne przykłady."
+                return f"Możesz dopisać **dlaczego** założenia '{assumption_name}' zostały/nie zostały spełnione? 1-2 konkretne przykłady.{pending_target.get("system_accepted")}"
 
         if pending_state_key == "masters_intent":
             # this state is NOT numeric; we just need an answer + short reason
@@ -391,7 +391,7 @@ def get_app() -> Sanic:
 
         return Agent(
             name=agent_name,
-            model="gpt-4o",
+            model="gpt-4o-mini",
             instructions=base_instructions.strip(),
             mcp_servers=[mcp_server],
             model_settings=ModelSettings(tool_choice="auto"),
@@ -444,7 +444,7 @@ def get_app() -> Sanic:
 
         return Agent(
             name=f"QuestionAgent/{state.name}",
-            model="gpt-4o",
+            model="gpt-4o-mini",
             instructions=base_instructions.strip(),
             mcp_servers=[mcp_server],
             model_settings=ModelSettings(tool_choice="auto"),
@@ -579,7 +579,7 @@ def get_app() -> Sanic:
             print(f"Received data: {data}")
 
             user_id = data.get("user_id", 0)
-            user_anwser = data.get("answer", data.get("anwser", "No answer for last question."))
+            user_anwser = data.get("anwser", "No anwser for last question.")
 
             print(f"Connecting to MCP server at {MCP_SERVER_URL}/mcp...")
 

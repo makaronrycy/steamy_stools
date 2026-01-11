@@ -1256,6 +1256,21 @@ class Neo4jRetriever:
                     "next_assumption": incomplete[0] if incomplete else None
                 }
             }
+         # Priority 7: Masters intent (open answer)
+        if not status.get("masters_intent", {}).get("is_complete", False):
+            return {
+                "next_state": "masters_intent",
+                "reason": "masters_intent_incomplete",
+                "details": {}
+            }
+
+        # Priority 8: Study program feedback (open answer)
+        if not status.get("study_program_feedback", {}).get("is_complete", False):
+            return {
+                "next_state": "study_program_feedback",
+                "reason": "study_program_feedback_incomplete",
+                "details": {}
+            }
 
         # All complete
         return {
@@ -1619,7 +1634,7 @@ class Neo4jRetriever:
     def set_assumption_evaluation(
         self,
         student_index: str,
-        assumption_description: str,
+        assumption_index: str,
         fulfilled: bool,
         explanation: str
     ):
@@ -1639,8 +1654,8 @@ class Neo4jRetriever:
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
-                MATCH (project)-[:has_assumption]->(assumption:Assumption {description: $assumption_description})
-                WHERE assumption.system_accepted = false
+                MATCH (project)-[:has_assumption]->(assumption:Assumption)
+                WHERE elementId(assumption) = $assumption_index
                 CREATE (student)-[:evaluated]->(eval:AssumptionEvaluation {
                     fulfilled: $fulfilled,
                     explanation: $explanation
@@ -1655,7 +1670,7 @@ class Neo4jRetriever:
                        eval.explanation as explanation
             """,
                 student_index=student_index,
-                assumption_description=assumption_description,
+                assumption_index=assumption_index,
                 fulfilled=fulfilled,
                 explanation=explanation
             )
