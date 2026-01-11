@@ -20,7 +20,33 @@ class Neo4jRetriever:
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    
+    def list_people(self):
+        response = []
+        with self.driver.session() as session:
+            projects = session.run("Match (p:Project) RETURN p.id as id, p.name as name ORDER BY p.id").data()
+
+        for record in projects:
+            payload = {}
+            payload['project_id'] = record['id']
+            payload['project_name'] = record['name']
+            payload['people'] = []
+
+            with self.driver.session() as session:
+                people_for_project = session.run("""
+                    MATCH (s:Student)-[:belongs_to]->(p:Project {id: $project_id})
+                    RETURN s.name AS name, s.surname AS surname, s.index AS index
+                    ORDER BY s.index
+                """, project_id=record['id']).data()
+
+            for person_record in people_for_project:
+                person_payload = {
+                    'name': person_record['name'],
+                    'surname': person_record['surname'],
+                    'index': person_record['index']
+                }
+                payload['people'].append(person_payload)
+            response.append(payload)
+        return response
     def get_id_by_name(self, name: str, surname: str = None):
         """
         Get student ID (index) by name and optional surname
@@ -645,11 +671,11 @@ class Neo4jRetriever:
 
             # 6. MASTERS INTENT (open answer)
             masters_result = session.run("""
-                MATCH (student:Student {index: $index})
+                MATCH (student:Student {name: $name})
                 OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
                 WHERE answer.question_type = "masters_intent"
                 RETURN answer.explanation as explanation
-            """, index=index)
+            """, name=name)
             masters_record = masters_result.single()
             masters_expl = masters_record["explanation"] if masters_record else None
             masters_has_answer = masters_expl is not None and str(masters_expl).strip() != ""
@@ -660,11 +686,11 @@ class Neo4jRetriever:
 
             # 7. STUDY PROGRAM FEEDBACK (open answer)
             feedback_result = session.run("""
-                MATCH (student:Student {index: $index})
+                MATCH (student:Student {name: $name})
                 OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
                 WHERE answer.question_type = "study_program_feedback"
                 RETURN answer.explanation as explanation
-            """, index=index)
+            """, name=name)
             feedback_record = feedback_result.single()
             feedback_expl = feedback_record["explanation"] if feedback_record else None
             feedback_has_answer = feedback_expl is not None and str(feedback_expl).strip() != ""
@@ -676,7 +702,7 @@ class Neo4jRetriever:
             # 8. ASSUMPTION EVALUATIONS
             # Get all assumptions for the student's project and check which are evaluated
             assumptions_result = session.run("""
-                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
                 OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
                 RETURN assumption.id as assumption_id,
@@ -684,7 +710,7 @@ class Neo4jRetriever:
                        eval.fulfilled as fulfilled,
                        eval.explanation as explanation
                 ORDER BY assumption.id
-            """, index=index)
+            """, name=name)
 
             all_assumptions = []
             incomplete_assumptions = []
@@ -715,14 +741,14 @@ class Neo4jRetriever:
             # 6. ASSUMPTION EVALUATIONS (only for system_accepted = false)
             # Get all assumptions that the system rejected (require student evaluation)
             assumptions_result = session.run("""
-                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
                 WHERE assumption.system_accepted = false
                 OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
                 RETURN assumption.description as assumption_description,
                        eval.explanation as explanation
                 ORDER BY assumption.description
-            """, index=index)
+            """, name=name)
             
             all_rejected_assumptions = []
             incomplete_assumptions = []
@@ -1405,8 +1431,8 @@ class Neo4jRetriever:
     def create_project_assumption(
         self,
         project_id,
-        description: str = "",
-        system_accepted
+        description: str,
+        system_accepted: bool
     ):
         """
         Create a project assumption with its actual fulfillment status (ground truth)
@@ -1731,9 +1757,6 @@ class Neo4jRetriever:
             
             # First pass: create assumption definitions
             # We need to process assumption_definition rows first before evaluations
-            file.seek(0)
-            next(csv_reader)  # Skip header
-            
             assumptions_created = set()
             for row in csv_reader:
                 if not row.get('type') or row['type'].strip().startswith('#'):

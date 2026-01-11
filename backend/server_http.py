@@ -18,6 +18,7 @@ from objectives import analyze_assumptions
 
 # URL do agent-client (wewnętrzna sieć Docker)
 AGENT_CLIENT_URL = os.getenv("AGENT_CLIENT_URL", "http://agent-client:3000")
+AGENT_SERVER_URL = os.getenv("AGENT_SERVER_URL", "http://agent-server:10000")
 
 def to_jsonable(obj: Any) -> Any:
     """Zapewnia JSON-owalność wyniku."""
@@ -154,6 +155,21 @@ async def proxy_start_agent(request: Dict[str, Any]):
         return {"error": "timeout", "message": "Przekroczono czas oczekiwania na odpowiedź agenta."}
     except Exception as e:
         return {"error": str(e), "message": "Nie udało się połączyć z agent-client."}
+
+@app.get("/api/agent/people")
+async def proxy_list_people():
+    """
+    Pobiera listę osób z agent-server.
+    Proxy dla endpointu GET /list_people na porcie 10000.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{AGENT_SERVER_URL}/list_people")
+            return response.json()
+    except httpx.TimeoutException:
+        return {"error": "timeout", "message": "Upłynął czas oczekiwania na listę osób."}
+    except Exception as e:
+        return {"error": str(e), "message": "Nie można pobrać listy osób z agent-server."}
 
 @app.post("/api/github/analyze")
 async def analyze_github(background_tasks: BackgroundTasks):

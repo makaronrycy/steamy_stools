@@ -579,7 +579,7 @@ def get_app() -> Sanic:
             print(f"Received data: {data}")
 
             user_id = data.get("user_id", 0)
-            user_anwser = data.get("anwser", "No anwser for last question.")
+            user_anwser = data.get("answer", data.get("anwser", "No answer for last question."))
 
             print(f"Connecting to MCP server at {MCP_SERVER_URL}/mcp...")
 

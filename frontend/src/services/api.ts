@@ -6,10 +6,10 @@ const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || `http://${location.host
 
 export const api = {
   // === ChatPanel -> Backend proxy -> Agent Client ===
-  async sendToLLM(message: string): Promise<string> {
+  async sendToLLM(message: string, userId: string = "2001"): Promise<string> {
     try {
-      // user_id możesz brać z logowania / stanu, na razie na sztywno
-      const user_id = "2001";
+      // user_id przekazany dynamicznie
+      const user_id = userId;
 
       const payload = {
         user_id,
@@ -108,6 +108,16 @@ export const api = {
     } catch (error) {
       console.error("Assumptions analysis error:", error);
       throw error;
+    }
+  },
+
+  async getPeople(): Promise<any[]> {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/agent/people`);
+      return response.data;
+    } catch (error) {
+      console.error("Failed to fetch people:", error);
+      return [];
     }
   },
 };

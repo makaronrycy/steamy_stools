@@ -145,11 +145,6 @@ async def get_user_info_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-<<<<<<< agent_flow
-            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
-
-        info = retriever.get_user_info(index=user_index)
-=======
             return "ERROR: 'user_index' header not found"
             
         with retriever.driver.session() as session:
@@ -160,7 +155,6 @@ async def get_user_info_tool() -> str:
              return f"No user found for index {user_index}"
 
         info = retriever.get_user_info(name=user_name)
->>>>>>> main
         retriever.close()
 
         if not info:
