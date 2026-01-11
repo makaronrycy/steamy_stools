@@ -1,0 +1,12 @@
+[
+{
+    "name": "Project_name1",
+    "github":"https://github.com/owner1/repo_name1/tree/main_branch1",
+    "api_key":"api_key1"
+},
+{
+    "name": "Project_name2",
+    "github":"https://github.com/owner2/repo_name2/tree/main_branch2",
+    "api_key":"api_key2"
+}
+]
