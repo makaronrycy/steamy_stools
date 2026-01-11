@@ -60,7 +60,7 @@ AVAILABLE_STATES = {
         description="Evaluate leader.",
         prompt_name="question_prompt",
         verification_prompt_name="leader_evaluation_verification_prompt",
-        question="Jaką ocenę (2.0–5.0) wystawiłbyś swojemu liderowi i dlaczego? Podaj ocenę i krótkie uzasadnienie.",
+        question="Jaką ocenę (2.0–5.0) wystawiłbyś swojemu liderowi w kwestii zarządania grupą? Podaj ocenę i krótkie uzasadnienie.",
         allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=["get_leader_info_tool", "set_leader_grade_tool"],
     ),
