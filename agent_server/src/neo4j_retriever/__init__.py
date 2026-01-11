@@ -645,11 +645,11 @@ class Neo4jRetriever:
 
             # 6. MASTERS INTENT (open answer)
             masters_result = session.run("""
-                MATCH (student:Student {index: $index})
+                MATCH (student:Student {name: $name})
                 OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
                 WHERE answer.question_type = "masters_intent"
                 RETURN answer.explanation as explanation
-            """, index=index)
+            """, name=name)
             masters_record = masters_result.single()
             masters_expl = masters_record["explanation"] if masters_record else None
             masters_has_answer = masters_expl is not None and str(masters_expl).strip() != ""
@@ -660,11 +660,11 @@ class Neo4jRetriever:
 
             # 7. STUDY PROGRAM FEEDBACK (open answer)
             feedback_result = session.run("""
-                MATCH (student:Student {index: $index})
+                MATCH (student:Student {name: $name})
                 OPTIONAL MATCH (student)-[:answered]->(answer:Answer)-[:refers_to]->(student)
                 WHERE answer.question_type = "study_program_feedback"
                 RETURN answer.explanation as explanation
-            """, index=index)
+            """, name=name)
             feedback_record = feedback_result.single()
             feedback_expl = feedback_record["explanation"] if feedback_record else None
             feedback_has_answer = feedback_expl is not None and str(feedback_expl).strip() != ""
@@ -676,7 +676,7 @@ class Neo4jRetriever:
             # 8. ASSUMPTION EVALUATIONS
             # Get all assumptions for the student's project and check which are evaluated
             assumptions_result = session.run("""
-                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
                 OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
                 RETURN assumption.id as assumption_id,
@@ -684,7 +684,7 @@ class Neo4jRetriever:
                        eval.fulfilled as fulfilled,
                        eval.explanation as explanation
                 ORDER BY assumption.id
-            """, index=index)
+            """, name=name)
 
             all_assumptions = []
             incomplete_assumptions = []
@@ -715,14 +715,14 @@ class Neo4jRetriever:
             # 6. ASSUMPTION EVALUATIONS (only for system_accepted = false)
             # Get all assumptions that the system rejected (require student evaluation)
             assumptions_result = session.run("""
-                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
                 WHERE assumption.system_accepted = false
                 OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
                 RETURN assumption.description as assumption_description,
                        eval.explanation as explanation
                 ORDER BY assumption.description
-            """, index=index)
+            """, name=name)
             
             all_rejected_assumptions = []
             incomplete_assumptions = []
