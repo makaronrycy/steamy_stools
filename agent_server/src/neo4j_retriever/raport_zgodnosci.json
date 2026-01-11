@@ -1,0 +1,134 @@
+[
+  {
+    "id": "REQ-001",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Skuteczność OCR dla tekstu wynosi co najmniej 90% przy przetwarzaniu notatek odręcznych i książek w formacie PDF.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-002",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Skuteczność OCR dla wykresów wynosi co najmniej 70% przy przetwarzaniu notatek odręcznych i książek w formacie PDF.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-003",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Skuteczność OCR dla tabel wynosi co najmniej 80% przy przetwarzaniu notatek odręcznych i książek w formacie PDF.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-004",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Skuteczność OCR dla wzorów matematycznych wynosi co najmniej 60% przy przetwarzaniu notatek odręcznych i książek w formacie PDF.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-005",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Skuteczność OCR dla obrazków wynosi co najmniej 70% przy przetwarzaniu notatek odręcznych i książek w formacie PDF.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-006",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Wartość Character Error Rate (CER) dla rozpoznanego tekstu musi być niższa niż 5% w stosunku do całkowitej liczby znaków w tekście referencyjnym.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-007",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Skuteczność analizy schematów wynosi co najmniej 70% w porównaniu do oryginalnych schematów.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-008",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Skuteczność analizy wykresów wynosi co najmniej 70% w porównaniu do rzeczywistych punktów na wykresie.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-009",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "RAG Precision musi wynosić co najmniej 55% w ocenie poprawności wygenerowanych odpowiedzi.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-010",
+    "projekt": "System zarządzania zadaniami",
+    "opis": "Retrieval-Generation Alignment Score musi wynosić co najmniej 60% w ocenie zgodności wygenerowanej odpowiedzi z pobranymi dokumentami.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-011",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Procent istotnych fragmentów dokumentów w trafności pobierania musi wynosić co najmniej 60%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-012",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Przewidywana poprawa wyników egzaminu inżynierskiego z RAGiem musi wynosić co najmniej 30%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-013",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Skuteczność klasyfikacji schematów musi wynosić co najmniej 70% w identyfikacji rodzaju schematu.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-014",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Skuteczność rozpoznawania poszczególnych elementów schematów musi wynosić co najmniej 50%.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-015",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Skuteczność klasyfikacji elementów schematu musi wynosić co najmniej 50%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-016",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Wydajność wyszukiwania wektorowego musi zwracać 100 najbardziej trafnych wyników w czasie poniżej 50 ms.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-017",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Czas rerankingu najlepszych 20 wyników musi wynosić do 120 ms.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-018",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Skuteczność aproksymacji funkcji na wykresie musi wynosić co najmniej 70%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-019",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Współczynnik determinacji R² dla dopasowanej funkcji musi być co najmniej 0.7.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-020",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Kontrast między linią wykresu a tłem musi wynosić minimum 30%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-021",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Maksymalny dopuszczalny kąt obrotu wykresu nie może przekraczać ± 10 stopni.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-022",
+    "projekt": "Aplikacja do nauki języków",
+    "opis": "Skuteczność ekstrakcji danych z wykresu musi wynosić co najmniej 70%.",
+    "spelnione": false
+  }
+]
