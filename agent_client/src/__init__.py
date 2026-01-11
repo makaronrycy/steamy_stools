@@ -46,7 +46,7 @@ def get_app() -> Sanic:
             return None
 
     def _needs_target(state_key: str) -> bool:
-        return state_key in ("evaluate_teammate_grade", "evaluate_project_grade", "evaluate_leader_grade")
+        return state_key in ("evaluate_teammate_grade", "evaluate_project_grade", "evaluate_leader_grade", "evaluate_assumption")
 
     async def _compute_target_for_state(mcp_server: MCPServerStreamableHttp, state_key: str):
         """
@@ -55,6 +55,7 @@ def get_app() -> Sanic:
           - get_random_ungraded_member_tool -> dict or null
           - get_ungraded_projects_tool -> list[dict]
           - get_leader_info_tool -> dict
+          - get_random_unevaluated_assumption_tool -> dict or null
         """
         if state_key == "evaluate_teammate_grade":
             r = await mcp_server.session.call_tool("get_random_ungraded_member_tool")
@@ -70,6 +71,11 @@ def get_app() -> Sanic:
 
         if state_key == "evaluate_leader_grade":
             r = await mcp_server.session.call_tool("get_leader_info_tool")
+            parsed = _parse_maybe_json(_extract_tool_text(r))
+            return parsed if isinstance(parsed, dict) and parsed else None
+
+        if state_key == "evaluate_assumption":
+            r = await mcp_server.session.call_tool("get_random_unevaluated_assumption_tool")
             parsed = _parse_maybe_json(_extract_tool_text(r))
             return parsed if isinstance(parsed, dict) and parsed else None
 
@@ -93,6 +99,15 @@ def get_app() -> Sanic:
             idx = target.get("index")
             pid = target.get("project_id")
             return f"{base_question}\n\nLider: {name} {surname} (index: {idx}), project_id: {pid}"
+
+        if state_key == "evaluate_assumption" and target:
+            assumption_name = (target.get("name") or "").strip()
+            assumption_desc = (target.get("description") or "").strip()
+            project_name = (target.get("project_name") or "").strip()
+            # Bardziej naturalne pytanie
+            if assumption_desc:
+                return f"**{assumption_name}**\n_{assumption_desc}_\n\n{base_question}"
+            return f"**{assumption_name}** (projekt: {project_name})\n\n{base_question}"
 
         return base_question
 
@@ -150,6 +165,16 @@ def get_app() -> Sanic:
 
         if pending_state_key == "evaluate_objectives":
             return bool(st.get("objectives_assessment", {}).get("is_complete"))
+
+        if pending_state_key == "evaluate_assumption":
+            if not pending_target or not pending_target.get("assumption_id"):
+                return False
+            tgt = str(pending_target.get("assumption_id"))
+            incomplete = st.get("assumption_evaluations", {}).get("incomplete_details", []) or []
+            for d in incomplete:
+                if str(d.get("assumption_id")) == tgt:
+                    return bool(d.get("has_evaluation")) and bool(d.get("has_explanation"))
+            return True
 
         if pending_state_key == "masters_intent":
             return bool(st.get("masters_intent", {}).get("is_complete"))
@@ -225,6 +250,21 @@ def get_app() -> Sanic:
                 return "Podaj proszę **ocenę (2.0–5.0)** + krótkie uzasadnienie (w jednej wiadomości)."
             if needs_exp:
                 return "Dopisz proszę **1–2 zdania uzasadnienia** (razem z oceną w tej samej wiadomości)."
+
+        if pending_state_key == "evaluate_assumption":
+            assumption_id = pending_target.get("assumption_id") if pending_target else None
+            incomplete = completion_status.get("assumption_evaluations", {}).get("incomplete_details", []) or []
+            for d in incomplete:
+                if str(d.get("assumption_id")) == str(assumption_id):
+                    needs_eval = not d.get("has_evaluation", False)
+                    needs_exp = not d.get("has_explanation", False)
+                    if needs_eval and needs_exp:
+                        return "Podaj proszę **TAK lub NIE** (czy założenia są spełnione) oraz **1–2 zdania uzasadnienia**."
+                    if needs_eval:
+                        return "Podaj proszę jasną odpowiedź: **TAK** (spełnione) lub **NIE** (niespełnione) + krótkie uzasadnienie."
+                    if needs_exp:
+                        return "Dopisz proszę **1–2 zdania uzasadnienia** dlaczego założenia zostały/nie zostały spełnione."
+            return "Podaj proszę **TAK lub NIE** (czy założenia są spełnione) oraz **krótkie uzasadnienie**."
 
         if pending_state_key == "masters_intent":
             # here we only need an answer + short reasoning, no numeric grade
@@ -312,6 +352,24 @@ def get_app() -> Sanic:
                 return f"Podaj proszę jeszcze **ocenę 2.0–5.0** dla lidera {name}."
             if missing_exp:
                 return f"Możesz rozwinąć **dlaczego** taka ocena dla lidera {name}? Podaj 1–2 konkretne przykłady."
+
+        if pending_state_key == "evaluate_assumption":
+            def _assumption_missing():
+                assumption_id = pending_target.get("assumption_id") if pending_target else None
+                incomplete = completion_status.get("assumption_evaluations", {}).get("incomplete_details", []) or []
+                for d in incomplete:
+                    if str(d.get("assumption_id")) == str(assumption_id):
+                        return (not d.get("has_evaluation", False), not d.get("has_explanation", False))
+                return (True, True)
+            
+            missing_eval, missing_exp = _assumption_missing()
+            assumption_name = (pending_target.get("name") if pending_target else "") or "założeń"
+            if missing_eval and missing_exp:
+                return f"OK - czy założenia '{assumption_name}' zostały spełnione? Podaj **TAK/NIE** i **krótkie uzasadnienie** (1-2 zdania)."
+            if missing_eval:
+                return f"Podaj proszę jasną odpowiedź: **TAK** (spełnione) lub **NIE** (niespełnione) dla '{assumption_name}'."
+            if missing_exp:
+                return f"Możesz dopisać **dlaczego** założenia '{assumption_name}' zostały/nie zostały spełnione? 1-2 konkretne przykłady."
 
         if pending_state_key == "masters_intent":
             # this state is NOT numeric; we just need an answer + short reason
@@ -652,6 +710,44 @@ def get_app() -> Sanic:
                     )
                 # --- END SUBSTATE ---
 
+                # --- 3C) SUBSTATE: assumption ground truth followup ---
+                if isinstance(pending_substate, dict) and pending_substate.get("type") == "assumption_ground_truth_followup":
+                    q = pending_substate.get("question")
+
+                    if not q:
+                        # fallback if question missing
+                        r = await mcp_server.session.call_tool(
+                            "check_assumption_evaluation_consensus_tool",
+                            arguments={"min_evaluations": 1}
+                        )
+                        out = _parse_maybe_json(_extract_tool_text(r)) or {}
+                        q = out.get("followup_question") or "Możesz doprecyzować uzasadnienie tej oceny założeń? Dlaczego Twoja ocena różni się od faktycznego stanu projektu?"
+
+                    final_q = q
+
+                    if session_id:
+                        await mcp_server.session.call_tool(
+                            "save_conversation_message_tool",
+                            arguments={
+                                "session_id": session_id,
+                                "role": "assistant",
+                                "content": final_q,
+                                "state_at_time": pending_state_key,
+                            },
+                        )
+
+                    await mcp_server.cleanup()
+                    return response.json(
+                        {
+                            "status": "completed",
+                            "question": final_q,
+                            "current_state": pending_state_key,
+                            "next_state": pending_state_key,
+                        },
+                        ensure_ascii=False,
+                    )
+                # --- END ASSUMPTION SUBSTATE ---
+
                 # normal question path (no substate)
                 if pending_state_key == "initial":
                     final_q = await _ask_initial_question(mcp_server, session_id, user_id, pending_state_key)
@@ -736,6 +832,34 @@ def get_app() -> Sanic:
                 saved = True
                 verify_text = ""
                 skip_verification = True
+
+            # -------- 4D) If we are answering an assumption ground truth followup, save the followup and clear substate --------
+            skip_assumption_gate = False
+            if isinstance(pending_substate, dict) and pending_substate.get("type") == "assumption_ground_truth_followup":
+                if pending_state_key == "evaluate_assumption" and pending_target and pending_target.get("assumption_id"):
+                    await mcp_server.session.call_tool(
+                        "append_assumption_evaluation_followup_tool",
+                        arguments={
+                            "assumption_id": str(pending_target["assumption_id"]),
+                            "followup": user_anwser,
+                        },
+                    )
+
+                # clear substate, keep same state/target
+                await mcp_server.session.call_tool(
+                    "update_session_state_tool",
+                    arguments={
+                        "new_state": pending_state_key,
+                        "pending_target": pending_target,
+                        "pending_substate": None,
+                    },
+                )
+
+                # Treat as saved and skip normal verification
+                saved = True
+                verify_text = ""
+                skip_verification = True
+                skip_assumption_gate = True  # Don't re-trigger the gate after answering followup
 
             # 5) Verify + SAVE (verification tools write to DB)  [only if not skip_verification]
             if not skip_verification:
@@ -868,6 +992,51 @@ def get_app() -> Sanic:
                         ensure_ascii=False,
                     )
             # -------- END OUTLIER GATE --------
+
+            # -------- ASSUMPTION GROUND TRUTH GATE (substate between states) --------
+            # Check if user's assumption evaluations differ from actual project assumption fulfillment status
+            if pending_state_key == "evaluate_assumption" and not skip_assumption_gate:
+                r = await mcp_server.session.call_tool(
+                    "check_assumption_evaluation_consensus_tool",
+                    arguments={
+                        "min_evaluations": 1,  # need at least 1 evaluation to check
+                    },
+                )
+                out = _parse_maybe_json(_extract_tool_text(r)) or {}
+                if out.get("eligible") and out.get("is_outlier") and out.get("followup_question"):
+                    sub = {"type": "assumption_ground_truth_followup", "question": out["followup_question"], "mismatches": out.get("mismatches", [])}
+                    await mcp_server.session.call_tool(
+                        "update_session_state_tool",
+                        arguments={
+                            "new_state": pending_state_key,
+                            "pending_target": pending_target,
+                            "pending_substate": sub,
+                        },
+                    )
+
+                    final_q = out["followup_question"]
+                    if session_id:
+                        await mcp_server.session.call_tool(
+                            "save_conversation_message_tool",
+                            arguments={
+                                "session_id": session_id,
+                                "role": "assistant",
+                                "content": final_q,
+                                "state_at_time": pending_state_key,
+                            },
+                        )
+
+                    await mcp_server.cleanup()
+                    return response.json(
+                        {
+                            "status": "completed",
+                            "question": final_q,
+                            "current_state": pending_state_key,
+                            "next_state": pending_state_key,
+                        },
+                        ensure_ascii=False,
+                    )
+            # -------- END ASSUMPTION GROUND TRUTH GATE --------
 
             # 7) Saved -> compute next required state from DB, set as new pending, compute target, ask next
             next_state_result = await mcp_server.session.call_tool("get_next_required_state_tool")

@@ -75,6 +75,16 @@ AVAILABLE_STATES = {
         allowed_tools_verification=["set_project_objectives_grade_tool"],
     ),
 
+    "evaluate_assumption": State(
+        name="evaluate_assumption",
+        description="Evaluate project assumptions fulfillment.",
+        prompt_name="question_prompt",
+        verification_prompt_name="assumption_evaluation_verification_prompt",
+        question="Czy to założenie zostało zrealizowane? Odpowiedz TAK lub NIE i uzasadnij w 1–2 zdaniach.",
+        allowed_tools_question=[],
+        allowed_tools_verification=["set_assumption_evaluation_tool"],
+    ),
+
     "masters_intent": State(
         name="masters_intent",
         description="Masters intent.",

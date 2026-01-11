@@ -808,3 +808,297 @@ async def append_teammate_outlier_followup_tool(graded_person_index: str, follow
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------ASSUMPTION TOOLS----------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+@MCP_SERVER.tool(
+    name="get_unevaluated_assumptions_tool",
+    description="Pobiera listę założeń projektowych, które student jeszcze nie ocenił.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_unevaluated_assumptions_tool() -> str:
+    """
+    Returns list of assumptions the current user hasn't evaluated yet.
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        assumptions = retriever.get_unevaluated_assumptions(student_index=str(user_index))
+        retriever.close()
+
+        return json.dumps(assumptions, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="get_project_assumptions_tool",
+    description="Pobiera wszystkie założenia projektowe dla danego projektu.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_project_assumptions_tool(project_id: str) -> str:
+    """
+    Returns all assumptions for a specific project.
+    """
+    try:
+        retriever = Neo4jRetriever()
+        assumptions = retriever.get_project_assumptions(project_id=project_id)
+        retriever.close()
+
+        return json.dumps(assumptions, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="set_assumption_evaluation_tool",
+    description="Zapisuje ocenę założenia projektowego przez studenta (fulfilled: true/false + explanation).",
+    tags=set(['set', 'write', 'assumptions']),
+)
+async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, explanation: str) -> str:
+    """
+    Save a student's evaluation of a project assumption.
+
+    Args:
+        assumption_id: ID of the assumption being evaluated
+        fulfilled: True if assumption was fulfilled, False otherwise
+        explanation: Explanation for the evaluation
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        result = retriever.set_assumption_evaluation(
+            student_index=str(user_index),
+            assumption_id=assumption_id,
+            fulfilled=fulfilled,
+            explanation=explanation
+        )
+        retriever.close()
+
+        if result:
+            return json.dumps({
+                "success": True,
+                "student_index": result["student_index"],
+                "assumption_id": result["assumption_id"],
+                "fulfilled": result["fulfilled"],
+                "explanation": result["explanation"]
+            }, ensure_ascii=False)
+        else:
+            return json.dumps({"error": "Failed to save assumption evaluation"}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="get_assumption_evaluations_tool",
+    description="Pobiera wszystkie oceny dla danego założenia projektowego.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_assumption_evaluations_tool(assumption_id: str) -> str:
+    """
+    Returns all evaluations for a specific assumption.
+    """
+    try:
+        retriever = Neo4jRetriever()
+        evaluations = retriever.get_assumption_evaluations(assumption_id=assumption_id)
+        retriever.close()
+
+        return json.dumps(evaluations, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="get_random_unevaluated_assumption_tool",
+    description="Pobiera losowe (pierwsze) nieewaluowane założenie dla studenta.",
+    tags=set(['retrieval', 'assumptions']),
+)
+async def get_random_unevaluated_assumption_tool() -> str:
+    """
+    Returns the first unevaluated assumption for the current user, or null if all evaluated.
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        assumptions = retriever.get_unevaluated_assumptions(student_index=str(user_index))
+        retriever.close()
+
+        if assumptions and len(assumptions) > 0:
+            return json.dumps(assumptions[0], ensure_ascii=False)
+        else:
+            return json.dumps(None, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="check_assumption_evaluation_consensus_tool",
+    description="Sprawdza czy ocena studenta dla założeń projektu różni się od FAKTYCZNEGO stanu realizacji założeń w bazie (ground truth).",
+    tags=set(['retrieval', 'analysis', 'assumptions']),
+)
+async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -> str:
+    """
+    Checks if the current user's assumption evaluations differ from the ACTUAL fulfillment 
+    status in the database (ground truth).
+    
+    This tool compares user's answers against the real project assumption statuses,
+    NOT against peer consensus.
+
+    Args:
+        min_evaluations: Minimum number of assumptions user needs to have evaluated
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        
+        # Get user's project ID
+        project_id = retriever.get_student_project_id(str(user_index))
+        if not project_id:
+            retriever.close()
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": "Could not find user's project."
+            }, ensure_ascii=False)
+
+        # Get actual assumption status (ground truth)
+        actual_status = retriever.get_project_assumptions_status(project_id)
+        
+        if not actual_status["assumptions"]:
+            retriever.close()
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": "Project has no assumptions defined."
+            }, ensure_ascii=False)
+
+        # Get user's evaluations
+        user_evals = []
+        for assumption in actual_status["assumptions"]:
+            eval_result = retriever.get_student_assumption_evaluation(
+                student_index=str(user_index),
+                assumption_id=assumption["assumption_id"]
+            )
+            if eval_result:
+                # Skip if followup was already done for this mismatch
+                if eval_result.get("followup_done"):
+                    continue
+                    
+                user_evals.append({
+                    "assumption_id": assumption["assumption_id"],
+                    "assumption_name": assumption["name"],
+                    "user_fulfilled": eval_result["fulfilled"],
+                    "actual_fulfilled": assumption["fulfilled"],
+                    "matches_reality": eval_result["fulfilled"] == assumption["fulfilled"]
+                })
+
+        retriever.close()
+
+        if len(user_evals) < min_evaluations:
+            return json.dumps({
+                "eligible": False,
+                "is_outlier": False,
+                "reason": f"User has not evaluated enough assumptions (need {min_evaluations}, have {len(user_evals)}).",
+                "evaluations_count": len(user_evals)
+            }, ensure_ascii=False)
+
+        # Check for mismatches between user's answer and reality
+        mismatches = [e for e in user_evals if not e["matches_reality"]]
+        
+        is_outlier = len(mismatches) > 0
+        
+        followup = None
+        if is_outlier:
+            # Build natural followup question highlighting discrepancies
+            mismatch_details = []
+            for m in mismatches:
+                user_answer = "zrealizowane" if m["user_fulfilled"] else "niezrealizowane"
+                actual_answer = "zostało zrealizowane" if m["actual_fulfilled"] else "nie zostało zrealizowane"
+                mismatch_details.append(
+                    f"• **{m['assumption_name']}** – oceniłeś/aś jako {user_answer}, ale wg dokumentacji {actual_answer}"
+                )
+            
+            mismatch_text = "\n".join(mismatch_details)
+            
+            if len(mismatches) == 1:
+                followup = (
+                    f"Chwila – widzę rozbieżność:\n\n"
+                    f"{mismatch_text}\n\n"
+                    f"Skąd ta różnica? Może coś przeoczyłeś/aś, albo masz inne informacje? "
+                    f"Wyjaśnij krótko (1–2 zdania)."
+                )
+            else:
+                followup = (
+                    f"Zauważyłem kilka rozbieżności między Twoją oceną a stanem projektu:\n\n"
+                    f"{mismatch_text}\n\n"
+                    f"Możesz krótko wyjaśnić te różnice? (1–2 zdania wystarczą)"
+                )
+
+        return json.dumps({
+            "eligible": True,
+            "is_outlier": is_outlier,
+            "project_id": project_id,
+            "total_assumptions": actual_status["total"],
+            "actual_fulfilled_count": actual_status["fulfilled_count"],
+            "actual_unfulfilled_count": actual_status["unfulfilled_count"],
+            "all_actually_fulfilled": actual_status["all_fulfilled"],
+            "user_evaluations": user_evals,
+            "mismatches": mismatches,
+            "mismatch_count": len(mismatches),
+            "followup_question": followup
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+
+@MCP_SERVER.tool(
+    name="append_assumption_evaluation_followup_tool",
+    description="Dodaje dodatkowe uzasadnienie do oceny założenia (gdy wykryto różnicę z konsensusem).",
+    tags=set(['set', 'write', 'assumptions']),
+)
+async def append_assumption_evaluation_followup_tool(assumption_id: str, followup: str) -> str:
+    """
+    Appends additional explanation to an assumption evaluation (for outlier cases).
+    """
+    try:
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
+
+        retriever = Neo4jRetriever()
+        
+        # Append followup to the existing evaluation
+        with retriever.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption:Assumption {id: $assumption_id})
+                SET eval.followup = $followup,
+                    eval.followup_done = true,
+                    eval.explanation = coalesce(eval.explanation, "") + "\n\n[Dodatkowe uzasadnienie]: " + $followup
+                RETURN true AS ok
+            """, student_index=str(user_index), assumption_id=assumption_id, followup=followup)
+            rec = result.single()
+            ok = bool(rec and rec["ok"])
+        
+        retriever.close()
+        return json.dumps({"success": ok}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
