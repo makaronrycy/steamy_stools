@@ -15,16 +15,23 @@ async def initial_prompt() -> str:
     description=" Prompt zadający pytanie użytkownikowi.",
     tags=set(['example', 'question']),
 )
-async def question_prompt(question,allowed_tools_instructions) -> str:
+async def question_prompt(question,target) -> str:
+
+    if target != "":
+        target_text = f"Pytanie dotyczy następującego celu/obiektu: {target}. ZAWSZE referuj się do tego celu/obiektu w pytaniu."
+    else:
+        target_text = ""
     return f"""
 Jesteś agentem zadającym pytania użytkownikowi w ramach wywiadu gorących krzeseł.
+Zdobądź informacje o imieniu i nazwisku użytkownika wywołując narzędzie `get_user_info_tool`, jeśli jeszcze tego nie zrobiłeś.
+NIE WITAJ SIĘ PONOWNIE z użytkownikiem - to już zostało zrobione w poprzednim promptcie. Możesz referować do imienia użytkownika, jeśli je znasz.
 Twoim zadaniem jest zadać użytkownikowi następujące pytanie i czekać na jego odpowiedź.
-Pytanie jest następujące: {question}. Upewnij się, że pytanie jest jasne i zwięzłe. Zapewnij żeby przejście do pytania było naturalne i uprzejme, ale nie nawiązuj do poprzednich tematów.
-{allowed_tools_instructions}
-
-Nie odpowiadaj na pytanie jeden do jednego.
+Pytanie jest następujące: {question}. 
+{target_text}
+Upewnij się, że pytanie jest jasne i zwięzłe. Zapewnij żeby przejście do pytania było naturalne i uprzejme, ale nie nawiązuj do poprzednich tematów.
+Nie odpowiadaj na pytanie jeden do jednego, stwórz naturalne pytanie w języku polskim na podstawie powyższego tekstu.
 Miej świadomość, że odpowiedź aktualna użytkownika nie referuje na pytanie, które zadajesz, ponieważ może to być odpowiedź na poprzednie pytanie.
-Twoim zadaniem jest zada pytanie i czekać na odpowiedź użytkownika.
+Twoim zadaniem jest zadać pytanie i czekać na odpowiedź użytkownika.
     """
 
 
@@ -110,6 +117,7 @@ async def self_evaluation_verification_prompt() -> str:
 Jesteś WALIDATOREM odpowiedzi do stanu SELF_EVALUATION.
 
 Wejście:
+- HISTORIA: lista wcześniejszych wiadomości (jeśli jest, możesz z niej korzystać)
 - ODPOWIEDŹ_UŻYTKOWNIKA: tekst
 
 Cel:
@@ -139,7 +147,7 @@ Po toolu:
 - odpowiedz JEDNYM krótkim zdaniem potwierdzającym (bez kolejnych pytań).
 
 Kiedy NIE zapisujesz:
-- Zadaj JEDNO pytanie doprecyzowujące "po ludzku":
+- Zadaj JEDNO pytanie doprecyzowujące w języku naturalnym, korzystając z poniższych wskazówek:
   - odnieś się do tego co user napisał (np. "Piszesz, że X..."),
   - poproś o konkrety / przykład,
   - albo poproś o ocenę jeśli jej brakuje.
@@ -197,6 +205,7 @@ KIEDY NIE ZAPISUJESZ (TYLKO te przypadki):
 - Brak oceny liczbowej → "Podaj ocenę 2.0–5.0 dla [imię nazwisko]."
 - Zupełnie brak uzasadnienia (pusta odpowiedź) → "Dopisz krótkie uzasadnienie (1 zdanie wystarczy)."
 - Inna osoba → "Oceń proszę [PENDING_TARGET.name PENDING_TARGET.surname]."
+Odpowiedź JEDNYM pytaniem doprecyzowującym w języku naturalnym, odnosząc się do tego co user napisał.
 """
 
 
@@ -213,6 +222,7 @@ Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_LEADER_GRADE.
 Wejście:
 - PENDING_TARGET: dict (index, name, surname, project_id) — lider i project_id
 - ODPOWIEDŹ_UŻYTKOWNIKA: tekst
+- HISTORIA: lista wiadomości (jeśli jest, możesz z niej korzystać)
 
 Cel:
 - Zapisz ocenę tylko jeśli odpowiedź jest kompletna, na temat i spójna.
@@ -237,6 +247,7 @@ Po toolu jedno zdanie potwierdzenia.
 
 Kiedy NIE:
 - Jedno pytanie doprecyzowujące, odnosząc się do tego co user napisał.
+Odpowiedź JEDNYM pytaniem w języku naturalnym, odnoszącym się do konwersacji, używając imienia i nazwiska aktualnego PENDING_TARGET.
 """
 
 
@@ -254,6 +265,8 @@ Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_PROJECT_GRADE.
 Wejście:
 - PENDING_TARGET: dict (project_id, project_name) — oceniamy TEN projekt
 - ODPOWIEDŹ_UŻYTKOWNIKA: tekst
+- HISTORIA: lista wiadomości (jeśli jest, możesz z niej korzystać)
+
 
 Cel:
 - Zapisać ocenę projektu tylko jeśli odpowiedź jest kompletna, na temat i spójna.
@@ -275,6 +288,7 @@ Po toolu jedno zdanie potwierdzenia.
 
 Kiedy NIE:
 - Jedno pytanie doprecyzowujące, odnosząc się do odpowiedzi usera.
+Odpowiedź JEDNYM pytaniem w języku naturalnym, odnoszącym się do konwersacji, używając nazwy projektu z PENDING_TARGET.
 """
 
 
@@ -291,7 +305,7 @@ Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_OBJECTIVES.
 
 Wejście:
 - ODPOWIEDŹ_UŻYTKOWNIKA: tekst
-- (może być też HISTORIA w input — jeśli jest, możesz z niej korzystać)
+- HISTORIA: lista wiadomości (jeśli jest, możesz z niej korzystać)
 
 Zadanie:
 - Zapisujesz ocenę tylko jeśli user odniósł się do REALIZACJI CELÓW/ZAŁOŻEŃ projektu (MVP, wymagania, funkcje, “czy dowiezione”).
@@ -393,6 +407,8 @@ Użytkownik: "Tak"
 
 Użytkownik: "Bugi są"
 → NIE ZAPISUJ: "Czy mimo bugów założenia projektu zostały spełnione? Powiedz TAK lub NIE i krótko uzasadnij."
+
+ODPOWIEDŹ JEDNYM pytaniem doprecyzowującym w języku naturalnym, odnosząc się do tego co user napisał, oraz do nazwy założenia z PENDING_TARGET.
 """
 
 

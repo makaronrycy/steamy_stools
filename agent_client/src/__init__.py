@@ -1,7 +1,7 @@
 from agents import Agent, Runner, ModelSettings
 from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
 from sanic import Sanic, response, request
-from .states import AVAILABLE_STATES
+from .states import AVAILABLE_STATES,State
 from .utils import context_aware_filter
 from langfuse import Langfuse
 import json
@@ -58,24 +58,24 @@ def get_app() -> Sanic:
           - get_random_unevaluated_assumption_tool -> dict or null
         """
         if state_key == "evaluate_teammate_grade":
-            r = await mcp_server.session.call_tool("get_random_ungraded_member_tool")
+            r = await mcp_server.session.call_tool("get_random_ungraded_member_tool") 
             parsed = _parse_maybe_json(_extract_tool_text(r))
             return parsed if isinstance(parsed, dict) and parsed else None
 
         if state_key == "evaluate_project_grade":
-            r = await mcp_server.session.call_tool("get_ungraded_projects_tool")
+            r = await mcp_server.session.call_tool("get_ungraded_projects_tool") 
             parsed = _parse_maybe_json(_extract_tool_text(r))
             if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
                 return parsed[0]
             return None
 
         if state_key == "evaluate_leader_grade":
-            r = await mcp_server.session.call_tool("get_leader_info_tool")
+            r = await mcp_server.session.call_tool("get_leader_info_tool") 
             parsed = _parse_maybe_json(_extract_tool_text(r))
             return parsed if isinstance(parsed, dict) and parsed else None
 
         if state_key == "evaluate_assumption":
-            r = await mcp_server.session.call_tool("get_random_unevaluated_assumption_tool")
+            r = await mcp_server.session.call_tool("get_random_unevaluated_assumption_tool") 
             parsed = _parse_maybe_json(_extract_tool_text(r))
             return parsed if isinstance(parsed, dict) and parsed else None
 
@@ -122,7 +122,7 @@ def get_app() -> Sanic:
         return (text or "").strip().upper() == (SAFE_WORD or "KONIEC").strip().upper()
 
     async def _get_completion_status(mcp_server: MCPServerStreamableHttp) -> dict:
-        r = await mcp_server.session.call_tool("get_student_completion_status_tool")
+        r = await mcp_server.session.call_tool("get_student_completion_status_tool") 
         parsed = _parse_maybe_json(_extract_tool_text(r))
         return parsed if isinstance(parsed, dict) else {}
 
@@ -384,6 +384,7 @@ def get_app() -> Sanic:
         return "Możesz doprecyzować odpowiedź? Odpowiedz proszę 1–3 zdaniami na pytanie."
 
     async def _build_verification_agent(mcp_server: MCPServerStreamableHttp, agent_name: str, prompt_name: str) -> Agent:
+
         p = await mcp_server.session.get_prompt(prompt_name)
         base_instructions = p.messages[0].content.text
 
@@ -409,14 +410,70 @@ def get_app() -> Sanic:
             instructions=instructions.strip(),
         )
 
-    async def _run_agent_text(agent: Agent, input_text: str) -> str:
+    async def _build_question_agent(
+        mcp_server: MCPServerStreamableHttp,
+        state: State,
+        base_question: str,
+        target: dict | None
+    ) -> Agent:
+        """
+        Builds a QuestionAgent that uses the 'question_prompt' from MCP server
+        to dynamically generate the question text to ask the user.
+        """
+        # Prepare the formatted question text with target info
+        formatted_question = _render_question_text(state.name, base_question, target)
+        if state.name in ["evaluate_teammate_grade","evaluate_leader_grade"] and target:
+            target_text:str = f"{target.get('name','')} {target.get('surname','')}".strip()
+        elif state.name == "evaluate_project_grade" and target:
+            target_text:str  = f"{target.get('project_name','')}".strip()
+        elif state.name == "evaluate_assumption" and target:
+            target_text:str  = f"{target.get('name','')}".strip()
+        else:
+            target_text = ""
+
+        # Fetch the question_prompt from MCP server with the question as argument
+        p = await mcp_server.session.get_prompt(
+            "question_prompt",
+            {
+                "question": formatted_question,
+                "target": target_text
+            }
+        )
+        base_instructions = p.messages[0].content.text
+
+        return Agent(
+            name=f"QuestionAgent/{state.name}",
+            model="gpt-4o-mini",
+            instructions=base_instructions.strip(),
+            mcp_servers=[mcp_server],
+            model_settings=ModelSettings(tool_choice="auto"),
+        )
+
+    async def _run_agent_text(agent: Agent, input_text: str, langfuse_client=None, pending_state: str | None = None) -> str:
         runner = Runner()
         result = runner.run_streamed(starting_agent=agent, input=input_text)
 
         out = []
+        tool_calls = []  # Collect tool calls and their outputs
+        current_tool_call = None
+
         async for ev in result.stream_events():
             if ev.type == "raw_response_event" and ev.data.type == "response.output_text.delta":
                 out.append(ev.data.delta)
+
+            elif ev.type == "run_item_stream_event":
+                if ev.item.type == "tool_call_item":
+                    # Start tracking a new tool call
+                    current_tool_call = {
+                        "name": getattr(ev.item, "tool_name", "unknown_tool"),
+                        "input": ev.item.raw_item,
+                        "output": None
+                    }
+                    tool_calls.append(current_tool_call)
+
+                elif ev.item.type == "tool_call_output_item" and current_tool_call:
+                    # Add output to the most recent tool call
+                    current_tool_call["output"] = ev.item.raw_item.get("output", "")
 
         text = "".join(out).strip()
         if not text:
@@ -424,6 +481,45 @@ def get_app() -> Sanic:
                 text = (result.final_ or "").strip()
             except Exception:
                 text = ""
+
+        # Log to Langfuse
+        if langfuse_client:
+            try:
+                # Determine generation name based on agent type and state
+                agent_type = agent.name.split("/")[0] if "/" in agent.name else agent.name
+                generation_name = f"{agent_type}/{pending_state}" if pending_state else agent_type
+
+                # Use context manager to create generation observation
+                with langfuse_client.start_as_current_observation(
+                    as_type="generation",
+                    name=generation_name,
+                    model=agent.model,
+                    metadata={"agent_name": agent.name, "pending_state": pending_state}
+                ) as generation:
+                    generation.update(
+                        input=input_text,
+                        output=text
+                    )
+
+                    # Log each tool call as a nested span
+                    for tool_call in tool_calls:
+                        try:
+                            with langfuse_client.start_as_current_observation(
+                                as_type="span",
+                                name=f"tool/{tool_call['name']}"
+                            ) as tool_span:
+                                tool_span.update(
+                                    input=tool_call["input"],
+                                    output=tool_call["output"]
+                                )
+                        except Exception as e:
+                            print(f"Failed to log tool call {tool_call['name']}: {e}")
+
+                # Flush to ensure data is sent (important for short-lived requests)
+                langfuse_client.flush()
+            except Exception as e:
+                print(f"Failed to log generation to Langfuse: {e}")
+
         return text
 
     async def _ask_initial_question(
@@ -432,7 +528,7 @@ def get_app() -> Sanic:
         user_id: int,
         state_key: str
     ) -> str:
-        info_raw = _extract_tool_text(await mcp_server.session.call_tool("get_user_info_tool"))
+        info_raw = _extract_tool_text(await mcp_server.session.call_tool("get_user_info_tool")) 
         info = _parse_maybe_json(info_raw) or {}
         if isinstance(info, dict) and not info.get("error"):
             q = (
@@ -450,7 +546,7 @@ def get_app() -> Sanic:
             )
 
         if session_id:
-            await mcp_server.session.call_tool(
+            await mcp_server.session.call_tool( 
                 "save_conversation_message_tool",
                 arguments={
                     "session_id": session_id,
@@ -465,6 +561,18 @@ def get_app() -> Sanic:
 
     @app.route("/start_agent", methods=["POST"])
     async def start_agent(request: request.Request):
+        # Initialize Langfuse
+        langfuse = None
+        try:
+            langfuse = Langfuse(
+                secret_key=os.environ.get('LANGFUSE_SECRET_KEY', ''),
+                public_key=os.environ.get('LANGFUSE_PUBLIC_KEY', ''),
+                host=os.environ.get('LANGFUSE_HOST', 'https://cloud.langfuse.com'),
+                timeout=60,
+            )
+        except Exception as e:
+            print(f"Failed to initialize Langfuse: {e}")
+
         try:
             data = request.json or {}
             print(f"Received data: {data}")
@@ -486,7 +594,7 @@ def get_app() -> Sanic:
             print("MCP server connected successfully")
 
             # 1) Read session (DB is source of truth)
-            state_tool_result = await mcp_server.session.call_tool("get_next_required_state_tool")
+            state_tool_result = await mcp_server.session.call_tool("get_next_required_state_tool") 
             state_dict = _parse_maybe_json(_extract_tool_text(state_tool_result)) or {}
 
             session_id = state_dict.get("session_id")
@@ -543,7 +651,7 @@ def get_app() -> Sanic:
 
                     # Save farewell + persist ended flag in DB so chat won't restart next turn
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -552,7 +660,7 @@ def get_app() -> Sanic:
                                 "state_at_time": "done",
                             },
                         )
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "update_session_state_tool",
                             arguments={
                                 "new_state": "done",
@@ -583,7 +691,7 @@ def get_app() -> Sanic:
                         f"Żeby zakończyć definitywnie: wpisz **{SAFE_WORD}**."
                     )
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -606,7 +714,7 @@ def get_app() -> Sanic:
 
                 # 3) Save user message (as chat)
                 if session_id:
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "save_conversation_message_tool",
                         arguments={
                             "session_id": session_id,
@@ -619,7 +727,7 @@ def get_app() -> Sanic:
                 # 4) Generate chat reply (no DB writes except conversation log)
                 chat_agent = await _build_post_interview_chat_agent(mcp_server)
 
-                history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
+                history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool") 
                 history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
                 history_messages = history_dict.get("messages", [])
 
@@ -627,12 +735,12 @@ def get_app() -> Sanic:
                     f"HISTORIA (skrócona): {history_messages[-12:]}\n"
                     f"UŻYTKOWNIK: {user_anwser}\n"
                 )
-                chat_reply = await _run_agent_text(chat_agent, chat_input)
+                chat_reply = await _run_agent_text(chat_agent, chat_input, langfuse_client=langfuse, pending_state="done")
                 if not chat_reply:
                     chat_reply = "Jasne — o czym chcesz pogadać?"
 
                 if session_id:
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "save_conversation_message_tool",
                         arguments={
                             "session_id": session_id,
@@ -659,12 +767,12 @@ def get_app() -> Sanic:
             # 2) Ensure target exists for target states
             if _needs_target(pending_state_key) and not pending_target:
                 pending_target = await _compute_target_for_state(mcp_server, pending_state_key)
-                await mcp_server.session.call_tool(
+                await mcp_server.session.call_tool( 
                     "update_session_state_tool",
                     arguments={"new_state": pending_state_key, "pending_target": pending_target},
                 )
                 print(f"Persisted pending target for {pending_state_key}: {pending_target}")
-
+        
             # 3) If no real answer -> ask pending question (DB-driven)
             has_real_answer = (user_anwser or "").strip() != "" and user_anwser != "No anwser for last question."
             if not has_real_answer:
@@ -676,7 +784,7 @@ def get_app() -> Sanic:
                     if not q:
                         # fallback if question missing
                         if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
-                            r = await mcp_server.session.call_tool(
+                            r = await mcp_server.session.call_tool( 
                                 "check_teammate_outlier_tool",
                                 arguments={"graded_person_index": str(pending_target["index"])}
                             )
@@ -688,7 +796,7 @@ def get_app() -> Sanic:
                     final_q = q
 
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -716,7 +824,7 @@ def get_app() -> Sanic:
 
                     if not q:
                         # fallback if question missing
-                        r = await mcp_server.session.call_tool(
+                        r = await mcp_server.session.call_tool( 
                             "check_assumption_evaluation_consensus_tool",
                             arguments={"min_evaluations": 1}
                         )
@@ -726,7 +834,7 @@ def get_app() -> Sanic:
                     final_q = q
 
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -758,7 +866,7 @@ def get_app() -> Sanic:
                         f"Jeśli chcesz zakończyć rozmowę i dostać podsumowanie/pożegnanie, wpisz: **{SAFE_WORD}**."
                     )
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -768,9 +876,21 @@ def get_app() -> Sanic:
                             },
                         )
                 else:
-                    final_q = _render_question_text(pending_state_key, pending_state.question, pending_target)
+                    # Use QuestionAgent to dynamically generate the question
+                    question_agent = await _build_question_agent(
+                        mcp_server=mcp_server,
+                        state=pending_state,
+                        base_question=pending_state.question,
+                        target=pending_target
+                    )
+                    final_q = await _run_agent_text(
+                        question_agent,
+                        "Wygeneruj pytanie dla użytkownika.",
+                        langfuse_client=langfuse,
+                        pending_state=pending_state_key
+                    )
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -793,7 +913,7 @@ def get_app() -> Sanic:
 
             # 4) Save user's message as response to pending state
             if session_id:
-                await mcp_server.session.call_tool(
+                await mcp_server.session.call_tool( 
                     "save_conversation_message_tool",
                     arguments={
                         "session_id": session_id,
@@ -810,7 +930,7 @@ def get_app() -> Sanic:
 
             if isinstance(pending_substate, dict) and pending_substate.get("type") == "outlier_followup":
                 if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "append_teammate_outlier_followup_tool",
                         arguments={
                             "graded_person_index": str(pending_target["index"]),
@@ -819,7 +939,7 @@ def get_app() -> Sanic:
                     )
 
                 # clear substate, keep same state/target
-                await mcp_server.session.call_tool(
+                await mcp_server.session.call_tool( 
                     "update_session_state_tool",
                     arguments={
                         "new_state": pending_state_key,
@@ -837,7 +957,7 @@ def get_app() -> Sanic:
             skip_assumption_gate = False
             if isinstance(pending_substate, dict) and pending_substate.get("type") == "assumption_ground_truth_followup":
                 if pending_state_key == "evaluate_assumption" and pending_target and pending_target.get("assumption_id"):
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "append_assumption_evaluation_followup_tool",
                         arguments={
                             "assumption_id": str(pending_target["assumption_id"]),
@@ -846,7 +966,7 @@ def get_app() -> Sanic:
                     )
 
                 # clear substate, keep same state/target
-                await mcp_server.session.call_tool(
+                await mcp_server.session.call_tool( 
                     "update_session_state_tool",
                     arguments={
                         "new_state": pending_state_key,
@@ -877,7 +997,7 @@ def get_app() -> Sanic:
                         saved = False
                         verify_text = "Brakuje prompta weryfikacyjnego dla tego stanu — nie mogę zapisać odpowiedzi."
                     else:
-                        history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool")
+                        history_tool_result = await mcp_server.session.call_tool("get_conversation_context_tool") 
                         history_dict = _parse_maybe_json(_extract_tool_text(history_tool_result)) or {}
                         history_messages = history_dict.get("messages", [])
 
@@ -885,6 +1005,7 @@ def get_app() -> Sanic:
                             mcp_server=mcp_server,
                             agent_name=f"VerificationAgent/{pending_state_key}",
                             prompt_name=verify_prompt_name,
+                            #pending_target= pending_target
                         )
 
                         verify_input = (
@@ -893,7 +1014,7 @@ def get_app() -> Sanic:
                             f"PENDING_TARGET: {pending_target}\n"
                             f"ODPOWIEDŹ_UŻYTKOWNIKA: {user_anwser}\n"
                         )
-                        verify_text = await _run_agent_text(v_agent, verify_input)
+                        verify_text = await _run_agent_text(v_agent, verify_input, langfuse_client=langfuse, pending_state=pending_state_key)
 
                         # DB-first: check completion after verifier runs
                         saved = await _is_pending_state_completed(mcp_server, pending_state_key, pending_target)
@@ -926,7 +1047,7 @@ def get_app() -> Sanic:
                     final_q = _missing_info_hint(pending_state_key, pending_target or {}, completion_status)
 
                 if session_id:
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "save_conversation_message_tool",
                         arguments={
                             "session_id": session_id,
@@ -949,7 +1070,7 @@ def get_app() -> Sanic:
 
             # -------- OUTLIER GATE (substate between states) --------
             if pending_state_key == "evaluate_teammate_grade" and pending_target and pending_target.get("index"):
-                r = await mcp_server.session.call_tool(
+                r = await mcp_server.session.call_tool( 
                     "check_teammate_outlier_tool",
                     arguments={
                         "graded_person_index": str(pending_target["index"]),
@@ -960,7 +1081,7 @@ def get_app() -> Sanic:
                 out = _parse_maybe_json(_extract_tool_text(r)) or {}
                 if out.get("eligible") and out.get("is_outlier") and out.get("followup_question"):
                     sub = {"type": "outlier_followup", "question": out["followup_question"]}
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "update_session_state_tool",
                         arguments={
                             "new_state": pending_state_key,
@@ -971,7 +1092,7 @@ def get_app() -> Sanic:
 
                     final_q = out["followup_question"]
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -996,7 +1117,7 @@ def get_app() -> Sanic:
             # -------- ASSUMPTION GROUND TRUTH GATE (substate between states) --------
             # Check if user's assumption evaluations differ from actual project assumption fulfillment status
             if pending_state_key == "evaluate_assumption" and not skip_assumption_gate:
-                r = await mcp_server.session.call_tool(
+                r = await mcp_server.session.call_tool( 
                     "check_assumption_evaluation_consensus_tool",
                     arguments={
                         "min_evaluations": 1,  # need at least 1 evaluation to check
@@ -1005,7 +1126,7 @@ def get_app() -> Sanic:
                 out = _parse_maybe_json(_extract_tool_text(r)) or {}
                 if out.get("eligible") and out.get("is_outlier") and out.get("followup_question"):
                     sub = {"type": "assumption_ground_truth_followup", "question": out["followup_question"], "mismatches": out.get("mismatches", [])}
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "update_session_state_tool",
                         arguments={
                             "new_state": pending_state_key,
@@ -1016,7 +1137,7 @@ def get_app() -> Sanic:
 
                     final_q = out["followup_question"]
                     if session_id:
-                        await mcp_server.session.call_tool(
+                        await mcp_server.session.call_tool( 
                             "save_conversation_message_tool",
                             arguments={
                                 "session_id": session_id,
@@ -1039,7 +1160,7 @@ def get_app() -> Sanic:
             # -------- END ASSUMPTION GROUND TRUTH GATE --------
 
             # 7) Saved -> compute next required state from DB, set as new pending, compute target, ask next
-            next_state_result = await mcp_server.session.call_tool("get_next_required_state_tool")
+            next_state_result = await mcp_server.session.call_tool("get_next_required_state_tool") 
             next_state_dict = _parse_maybe_json(_extract_tool_text(next_state_result)) or {}
             next_state_key = next_state_dict.get("next_state", pending_state_key)
 
@@ -1051,7 +1172,7 @@ def get_app() -> Sanic:
             if _needs_target(next_state_key):
                 next_target = await _compute_target_for_state(mcp_server, next_state_key)
 
-            await mcp_server.session.call_tool(
+            await mcp_server.session.call_tool( 
                 "update_session_state_tool",
                 arguments={
                     "new_state": next_state_key,
@@ -1071,7 +1192,7 @@ def get_app() -> Sanic:
                     f"Żeby zakończyć definitywnie: wpisz **{SAFE_WORD}**."
                 )
                 if session_id:
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool( 
                         "save_conversation_message_tool",
                         arguments={
                             "session_id": session_id,
@@ -1082,9 +1203,22 @@ def get_app() -> Sanic:
                     )
 
             else:
-                final_q = _render_question_text(next_state_key, next_state.question, next_target)
+                # Use QuestionAgent to dynamically generate the question
+                question_agent = await _build_question_agent(
+                    mcp_server=mcp_server,
+                    state=next_state,
+                    base_question=next_state.question,
+                    target=next_target
+                )
+                final_q = await _run_agent_text(
+                    question_agent,
+                    "Wygeneruj pytanie dla użytkownika.",
+
+                    langfuse_client=langfuse,
+                    pending_state=next_state_key
+                )
                 if session_id:
-                    await mcp_server.session.call_tool(
+                    await mcp_server.session.call_tool(  
                         "save_conversation_message_tool",
                         arguments={
                             "session_id": session_id,

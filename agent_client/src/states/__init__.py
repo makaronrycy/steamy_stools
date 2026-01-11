@@ -39,8 +39,8 @@ AVAILABLE_STATES = {
         description="Evaluate teammate.",
         prompt_name="question_prompt",
         verification_prompt_name="teammate_evaluation_verification_prompt",
-        question="Jaką ocenę (2.0–5.0) wystawiłbyś swojemu koledze z zespołu i dlaczego? Podaj ocenę i krótkie uzasadnienie.",
-        allowed_tools_question=[],
+        question="Jaką ocenę (2.0–5.0) wystawiłbyś swojemu koledze/koleżance (zależne od osoby) z zespołu i dlaczego? Podaj ocenę i krótkie uzasadnienie.",
+        allowed_tools_question=["get_user_info_tool"],
         # NO random tool here – verification must save for the pending_target
         allowed_tools_verification=["set_teammate_grade_tool", "identify_teammate_by_name_tool"],
     ),
@@ -50,8 +50,8 @@ AVAILABLE_STATES = {
         description="Evaluate projects.",
         prompt_name="question_prompt",
         verification_prompt_name="project_evaluation_verification_prompt",
-        question="Jaką ocenę (2.0–5.0) wystawiłbyś projektowi i dlaczego? Podaj ocenę i krótkie uzasadnienie.",
-        allowed_tools_question=[],
+        question="Jaką ocenę (2.0–5.0) wystawiłbyś projektowi i dlaczego? Podaj ocenę i krótkie uzasadnienie. Nie referuj do id projektu, tylko do jego nazwy.",
+        allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=["set_project_grade_tool"],
     ),
 
@@ -61,7 +61,7 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name="leader_evaluation_verification_prompt",
         question="Jaką ocenę (2.0–5.0) wystawiłbyś swojemu liderowi i dlaczego? Podaj ocenę i krótkie uzasadnienie.",
-        allowed_tools_question=[],
+        allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=["get_leader_info_tool", "set_leader_grade_tool"],
     ),
 
@@ -71,7 +71,7 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name="objectives_evaluation_verification_prompt",
         question="Jak oceniasz realizację celów projektu (2.0–5.0) i dlaczego? Podaj ocenę i krótkie uzasadnienie.",
-        allowed_tools_question=[],
+        allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=["set_project_objectives_grade_tool"],
     ),
 
@@ -81,7 +81,7 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name="assumption_evaluation_verification_prompt",
         question="Czy to założenie zostało zrealizowane? Odpowiedz TAK lub NIE i uzasadnij w 1–2 zdaniach.",
-        allowed_tools_question=[],
+        allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=["set_assumption_evaluation_tool"],
     ),
 
@@ -91,7 +91,7 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name="masters_intent_verification_prompt",
         question="Czy planujesz kontynuować studia na magisterce? Uzasadnij krótko.",
-        allowed_tools_question=[],
+        allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=["set_masters_intent_tool"],
     ),
 
@@ -101,7 +101,7 @@ AVAILABLE_STATES = {
         prompt_name="question_prompt",
         verification_prompt_name="study_program_feedback_verification_prompt",
         question="Jak oceniasz program studiów? Co byś zmienił/a? Odpowiedz krótko.",
-        allowed_tools_question=[],
+        allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=["set_study_program_feedback_tool"],
     ),
 
@@ -111,7 +111,7 @@ AVAILABLE_STATES = {
         prompt_name="done_prompt",
         verification_prompt_name=None,
         question="Dziękuję za udział w wywiadzie.",
-        allowed_tools_question=[],
+        allowed_tools_question=["get_user_info_tool"],
         allowed_tools_verification=[],
     ),
 }
