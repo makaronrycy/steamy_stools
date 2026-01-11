@@ -145,22 +145,14 @@ async def get_user_info_tool() -> str:
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
-<<<<<<< agent_flow
-            return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
-
-        info = retriever.get_user_info(index=user_index)
-=======
             return "ERROR: 'user_index' header not found"
-            
         with retriever.driver.session() as session:
             res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
             user_name = res["name"] if res else None
-            
         if not user_name:
              return f"No user found for index {user_index}"
 
         info = retriever.get_user_info(name=user_name)
->>>>>>> main
         retriever.close()
 
         if not info:
@@ -244,7 +236,7 @@ async def get_random_ungraded_member_tool() -> str:
         if not user_name:
              return f"No user found for index {user_index}"
 
-        member = retriever.get_random_ungraded_member(name=user_name)
+        member = retriever.get_random_ungraded_member(index=user_index)
         retriever.close()
 
         # Zwracamy JSON: dict albo null
@@ -586,11 +578,16 @@ async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
-        if not user_index:
-            return "ERROR: 'user_id' header not found"
         retriever = Neo4jRetriever()
+
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
         teammates = retriever.identify_teammate_by_name(
-            grader_index=user_index,
+            grader_name=user_name,
             name=param.name,
             surname=param.surname
         )
@@ -627,7 +624,26 @@ async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
         return f"SUCCESS: {user_index} graded {param.graded_person_index} with {param.grade}"
     except Exception as e:
         return f"ERROR: {str(e)}"
-
+@MCP_SERVER.tool(
+    name="is_member_of_project_tool",
+    description="Sprawdza, czy użytkownik jest członkiem danego projektu.",
+    tags=set(['retrieval', 'role']),
+)
+async def is_member_of_project_tool(project_id: str) -> str:
+    try:
+        retriever = Neo4jRetriever()
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
+        flag = retriever.is_member_of_project(
+            student_index=user_index,
+            project_id=project_id
+        )
+        retriever.close()
+        return "TRUE" if flag else "FALSE"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 @MCP_SERVER.tool(
     name="set_leader_grade_tool",
     description="Zapisuje ocenę lidera.",
@@ -768,11 +784,17 @@ async def check_teammate_outlier_tool(graded_person_index: str, threshold: float
         grader_index = request.headers.get("user_id")
         if not grader_index:
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
-
+        if not grader_index:
+            return "ERROR: 'user_index' header not found"
         retriever = Neo4jRetriever()
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=grader_index).single()
+            user_name = res["name"] if res else None
+
+       
 
         # all grades given to graded_person_index
-        grades = retriever.get_member_grades(index=str(graded_person_index)) or []
+        grades = retriever.get_member_grades(name=str(user_name)) or []
 
         # find user's latest answer meta (also tells if followup already done)
         meta = retriever.get_latest_teammate_answer_meta(grading_person_index=str(grader_index), graded_person_index=str(graded_person_index))
@@ -920,12 +942,12 @@ async def get_project_assumptions_tool(project_id: str) -> str:
     description="Zapisuje ocenę założenia projektowego przez studenta (fulfilled: true/false + explanation).",
     tags=set(['set', 'write', 'assumptions']),
 )
-async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, explanation: str) -> str:
+async def set_assumption_evaluation_tool(assumption_description: str, fulfilled: bool, explanation: str) -> str:
     """
     Save a student's evaluation of a project assumption.
 
     Args:
-        assumption_id: ID of the assumption being evaluated
+        assumption_description: Description of the assumption being evaluated
         fulfilled: True if assumption was fulfilled, False otherwise
         explanation: Explanation for the evaluation
     """
@@ -938,7 +960,7 @@ async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, ex
         retriever = Neo4jRetriever()
         result = retriever.set_assumption_evaluation(
             student_index=str(user_index),
-            assumption_id=assumption_id,
+            assumption_description=assumption_description,
             fulfilled=fulfilled,
             explanation=explanation
         )
@@ -949,6 +971,7 @@ async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, ex
                 "success": True,
                 "student_index": result["student_index"],
                 "assumption_id": result["assumption_id"],
+                "assumption_description": result["assumption_description"],
                 "fulfilled": result["fulfilled"],
                 "explanation": result["explanation"]
             }, ensure_ascii=False)
@@ -963,13 +986,13 @@ async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, ex
     description="Pobiera wszystkie oceny dla danego założenia projektowego.",
     tags=set(['retrieval', 'assumptions']),
 )
-async def get_assumption_evaluations_tool(assumption_id: str) -> str:
+async def get_assumption_evaluations_tool(assumption_description: str) -> str:
     """
     Returns all evaluations for a specific assumption.
     """
     try:
         retriever = Neo4jRetriever()
-        evaluations = retriever.get_assumption_evaluations(assumption_id=assumption_id)
+        evaluations = retriever.get_assumption_evaluations(assumption_description=assumption_description)
         retriever.close()
 
         return json.dumps(evaluations, ensure_ascii=False)
@@ -1060,13 +1083,13 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
                 # Skip if followup was already done for this mismatch
                 if eval_result.get("followup_done"):
                     continue
-                    
+
                 user_evals.append({
                     "assumption_id": assumption["assumption_id"],
-                    "assumption_name": assumption["name"],
+                    "assumption_description": assumption["description"],
                     "user_fulfilled": eval_result["fulfilled"],
-                    "actual_fulfilled": assumption["fulfilled"],
-                    "matches_reality": eval_result["fulfilled"] == assumption["fulfilled"]
+                    "actual_fulfilled": assumption["system_accepted"],
+                    "matches_reality": eval_result["fulfilled"] == assumption["system_accepted"]
                 })
 
         retriever.close()
@@ -1092,7 +1115,7 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
                 user_answer = "zrealizowane" if m["user_fulfilled"] else "niezrealizowane"
                 actual_answer = "zostało zrealizowane" if m["actual_fulfilled"] else "nie zostało zrealizowane"
                 mismatch_details.append(
-                    f"• **{m['assumption_name']}** – oceniłeś/aś jako {user_answer}, ale wg dokumentacji {actual_answer}"
+                    f"• **{m['assumption_description']}** – oceniłeś/aś jako {user_answer}, ale wg dokumentacji {actual_answer}"
                 )
             
             mismatch_text = "\n".join(mismatch_details)
@@ -1116,9 +1139,9 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
             "is_outlier": is_outlier,
             "project_id": project_id,
             "total_assumptions": actual_status["total"],
-            "actual_fulfilled_count": actual_status["fulfilled_count"],
-            "actual_unfulfilled_count": actual_status["unfulfilled_count"],
-            "all_actually_fulfilled": actual_status["all_fulfilled"],
+            "actual_fulfilled_count": actual_status["accepted_count"],
+            "actual_unfulfilled_count": actual_status["rejected_count"],
+            "all_actually_fulfilled": actual_status["all_accepted"],
             "user_evaluations": user_evals,
             "mismatches": mismatches,
             "mismatch_count": len(mismatches),
