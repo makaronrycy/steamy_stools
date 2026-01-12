@@ -1699,7 +1699,7 @@ class Neo4jRetriever:
     def set_assumption_evaluation(
         self,
         student_index: str,
-        assumption_index: str,
+        assumption_description: str,
         fulfilled: bool,
         explanation: str
     ):
@@ -1720,7 +1720,7 @@ class Neo4jRetriever:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
-                WHERE elementId(assumption) = $assumption_index
+                WHERE assumption.description = $assumption_description
                 CREATE (student)-[:evaluated]->(eval:AssumptionEvaluation {
                     fulfilled: $fulfilled,
                     explanation: $explanation
@@ -1735,7 +1735,7 @@ class Neo4jRetriever:
                        eval.explanation as explanation
             """,
                 student_index=student_index,
-                assumption_index=assumption_index,
+                assumption_description=assumption_description,
                 fulfilled=fulfilled,
                 explanation=explanation
             )
@@ -1905,10 +1905,14 @@ class Neo4jRetriever:
                 if row.get('type') and not row['type'].strip().startswith('#'):
                     original_rows.append(row)
         
-        # Get project name to ID mapping from data_no_grades.csv
+        # Get project name to ID mapping from data_no_grades CSV
         # We need to read the CSV to know which project_id corresponds to which project_name
         project_name_to_id = {}
-        data_csv_path = grades_csv_path.replace('grades.csv', 'data_no_grades.csv')
+        # Try to find data_no_grades file with same suffix as grades file
+        import re
+        suffix_match = re.search(r'grades(_\w+)?\.csv$', grades_csv_path)
+        suffix = suffix_match.group(1) if suffix_match and suffix_match.group(1) else ''
+        data_csv_path = re.sub(r'grades(_\w+)?\.csv$', f'data_no_grades{suffix}.csv', grades_csv_path)
         try:
             with open(data_csv_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
@@ -2252,20 +2256,20 @@ if __name__ == "__main__":
     
     # Option 1: Fill database without grades (just students, projects, and assumptions from JSON)
     # JSON file maps assumptions to projects using "projekt" field
-    retriever.fill_database_no_grades(
-        "src/neo4j_retriever/data_no_grades_presentation.csv",
-        "src/neo4j_retriever/raport_zgodnosci.json"
-    )
+    # retriever.fill_database_no_grades(
+    #     "src/neo4j_retriever/data_no_grades_presentation.csv",
+    #     "src/neo4j_retriever/raport_zgodnosci.json"
+    # )
     
     #Option 2: Generate combined CSV and fill with grades
     # Step 1: Generate grades_with_assumptions.csv from grades.csv + raport_zgodnosci.json
-    # Automatically maps assumptions to projects based on "projekt" field in JSON
-    Neo4jRetriever.generate_grades_with_assumptions(
-         grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
-         assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
-         output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
-     )
+    # # Automatically maps assumptions to projects based on "projekt" field in JSON
+    # Neo4jRetriever.generate_grades_with_assumptions(
+    #      grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
+    #      assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
+    #      output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
+    #  )
     # Step 2: Fill database from combined CSV
-    retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
+    # retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
     
     retriever.close()
