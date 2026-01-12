@@ -15,6 +15,24 @@ class Neo4jReportGenerator:
     """Generator raportów CSV z bazy Neo4j."""
     
     def __init__(self, uri: str, username: str, password: str, database: str = "neo4j"):
+        """
+        Inicjalizuje generator raportów CSV z bazy Neo4j.
+        
+        Tworzy połączenie z bazą danych i przygotowuje katalog wyjściowy
+        dla generowanych raportów.
+        
+        Args:
+            uri (str): URI połączenia z bazą Neo4j.
+            username (str): Nazwa użytkownika bazy danych.
+            password (str): Hasło do bazy danych.
+            database (str): Nazwa bazy danych. Domyślnie "neo4j".
+        
+        Attributes:
+            driver: Sterownik Neo4j do wykonywania zapytań.
+            database (str): Nazwa bazy danych.
+            timestamp (str): Znacznik czasu w formacie YYYYMMDD_HHMMSS.
+            reports_dir (str): Ścieżka do katalogu z raportami.
+        """
         self.driver = GraphDatabase.driver(uri, auth=(username, password))
         self.database = database
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -22,6 +40,7 @@ class Neo4jReportGenerator:
         os.makedirs(self.reports_dir, exist_ok=True)
     
     def close(self):
+        """Zamyka połączenie z bazą Neo4j."""
         self.driver.close()
     
     def _run_query(self, query: str):

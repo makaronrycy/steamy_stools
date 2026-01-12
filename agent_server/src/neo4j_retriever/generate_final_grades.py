@@ -49,6 +49,20 @@ PASS_THRESHOLD = 2.75  # Poniżej tego = niezdane (2.0)
 
 class FinalGradeCalculator:
     def __init__(self):
+        """
+        Inicjalizuje kalkulator ocen końcowych.
+        
+        Nawiązuje połączenie z bazą Neo4j używając zmiennych środowiskowych
+        lub wartości domyślnych. Tworzy katalog wyjściowy dla raportów.
+        
+        Attributes:
+            uri (str): URI połączenia z bazą Neo4j.
+            user (str): Nazwa użytkownika bazy danych.
+            password (str): Hasło do bazy danych.
+            driver: Sterownik Neo4j do wykonywania zapytań.
+            timestamp (str): Znacznik czasu w formacie YYYYMMDD_HHMMSS.
+            output_dir (str): Ścieżka do katalogu z raportami.
+        """
         self.uri = os.getenv('NEO4J_URI', 'neo4j+s://5e28eee4.databases.neo4j.io')
         self.user = os.getenv('NEO4J_USER', 'neo4j')
         self.password = os.getenv('NEO4J_PASSWORD', 'gwNT2SCurlmO4Do1si4UKz5OMlh06XfVsBJo6VgMt1s')
@@ -62,10 +76,20 @@ class FinalGradeCalculator:
         print(f"Łączenie z bazą: {self.uri}")
     
     def __del__(self):
+        """Destruktor zamykający połączenie z bazą Neo4j."""
         if hasattr(self, 'driver'):
             self.driver.close()
     
     def _run_query(self, query):
+        """
+        Wykonuje zapytanie Cypher na bazie Neo4j.
+        
+        Args:
+            query (str): Zapytanie Cypher do wykonania.
+        
+        Returns:
+            list[dict]: Lista słowników z wynikami zapytania.
+        """
         with self.driver.session() as session:
             result = session.run(query)
             return [record.data() for record in result]
