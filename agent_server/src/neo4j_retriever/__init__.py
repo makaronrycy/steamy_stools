@@ -2403,20 +2403,20 @@ if __name__ == "__main__":
     
     # Option 1: Fill database without grades (just students, projects, and assumptions from JSON)
     # JSON file maps assumptions to projects using "projekt" field
-    # retriever.fill_database_no_grades(
-    #     "src/neo4j_retriever/data_no_grades_presentation.csv",
-    #     "src/neo4j_retriever/raport_zgodnosci.json"
-    # )
+    retriever.fill_database_no_grades(
+        "src/neo4j_retriever/data_no_grades_presentation.csv",
+        "src/neo4j_retriever/raport_zgodnosci.json"
+    )
     
     #Option 2: Generate combined CSV and fill with grades
     # Step 1: Generate grades_with_assumptions.csv from grades.csv + raport_zgodnosci.json
     # # Automatically maps assumptions to projects based on "projekt" field in JSON
-    # Neo4jRetriever.generate_grades_with_assumptions(
-    #      grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
-    #      assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
-    #      output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
-    #  )
+    Neo4jRetriever.generate_grades_with_assumptions(
+         grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
+         assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
+         output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
+    )
     # Step 2: Fill database from combined CSV
-    # retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
+    retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
     
     retriever.close()
