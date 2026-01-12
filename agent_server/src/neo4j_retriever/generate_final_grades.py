@@ -27,9 +27,11 @@ import os
 from datetime import datetime
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Ładowanie zmiennych środowiskowych
-load_dotenv()
+REPO_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(dotenv_path=REPO_ROOT / ".env")
 
 # Konfiguracja wag wzoru
 WEIGHTS = {
@@ -63,9 +65,9 @@ class FinalGradeCalculator:
             timestamp (str): Znacznik czasu w formacie YYYYMMDD_HHMMSS.
             output_dir (str): Ścieżka do katalogu z raportami.
         """
-        self.uri = os.getenv('NEO4J_URI', 'neo4j+s://5e28eee4.databases.neo4j.io')
+        self.uri = os.getenv('NEO4J_URI')
         self.user = os.getenv('NEO4J_USER', 'neo4j')
-        self.password = os.getenv('NEO4J_PASSWORD', 'gwNT2SCurlmO4Do1si4UKz5OMlh06XfVsBJo6VgMt1s')
+        self.password = os.getenv('NEO4J_PASSWORD')
         self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
