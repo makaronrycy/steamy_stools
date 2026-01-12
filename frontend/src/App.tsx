@@ -16,6 +16,13 @@ function App() {
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
   const [showAdminAccess, setShowAdminAccess] = useState(false);
+  const normalizePath = (path: string) => path.replace(/\/+$/, "") || "/";
+  const isAdminPath = (loc: Location) => {
+    const pathname = normalizePath(loc.pathname);
+    const hashPath = loc.hash.replace(/^#/, "");
+    return pathname === "/admin" || normalizePath(hashPath) === "/admin";
+  };
+  const [isAdminRoute, setIsAdminRoute] = useState(() => isAdminPath(window.location));
 
   // User selection state
   const [userId, setUserId] = useState<string | null>(null);
@@ -26,6 +33,16 @@ function App() {
     connect();
   }, [connect]);
 
+  useEffect(() => {
+    const handleRouteChange = () => setIsAdminRoute(isAdminPath(window.location));
+    window.addEventListener("popstate", handleRouteChange);
+    window.addEventListener("hashchange", handleRouteChange);
+    return () => {
+      window.removeEventListener("popstate", handleRouteChange);
+      window.removeEventListener("hashchange", handleRouteChange);
+    };
+  }, []);
+
   const handleMessageAdded = (m: Message) => setChatMessages((p) => [...p, m]);
 
   const handleUserSelect = (id: string, name: string) => {
@@ -33,10 +50,34 @@ function App() {
     setUserName(name);
   };
 
+  if (isAdminRoute) {
+    return (
+      <div className="app flex flex-col items-center justify-center bg-gray-900 min-h-screen gap-6 p-6">
+        {!isAdminUnlocked && (
+          <div className="w-full max-w-md">
+            <AdminAccess
+              onAccessGranted={() => {
+                setIsAdminUnlocked(true);
+                setShowAdminAccess(false);
+              }}
+            />
+          </div>
+        )}
+
+        {isAdminUnlocked && (
+          <div className="w-full max-w-5xl">
+            <AdminPanel />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!userId) {
     return (
-      <div className="app flex items-center justify-center bg-gray-900 min-h-screen">
+      <div className="app flex flex-col items-center justify-center bg-gray-900 min-h-screen gap-6 p-6">
         <UserSelector onSelect={handleUserSelect} />
+
       </div>
     );
   }
@@ -48,29 +89,7 @@ function App() {
         <div className="subtitle">
           Zalogowany jako: {userName} ({userId})
         </div>
-        {!isAdminUnlocked && (
-          <button
-            className="btn-admin-header"
-            onClick={() => setShowAdminAccess(true)}
-          >
-            🔐 Panel Administratora
-          </button>
-        )}
       </header>
-
-      {/* Modal dostępu do admina */}
-      {showAdminAccess && !isAdminUnlocked && (
-        <div className="admin-access-overlay" onClick={() => setShowAdminAccess(false)}>
-          <div onClick={(e) => e.stopPropagation()}>
-            <AdminAccess
-              onAccessGranted={() => {
-                setIsAdminUnlocked(true);
-                setShowAdminAccess(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
 
       <div className={`main-content ${isAdminUnlocked ? 'two-columns' : 'single-column'}`}>
         <div className="left-column">
@@ -80,11 +99,6 @@ function App() {
             userId={userId}
           />
         </div>
-        {isAdminUnlocked && (
-          <div className="right-column">
-            <AdminPanel />
-          </div>
-        )}
       </div>
 
       <footer className="app-footer">
@@ -97,4 +111,3 @@ function App() {
 }
 
 export default App;
-
