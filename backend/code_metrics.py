@@ -106,7 +106,7 @@ def load_commits(
     df_sorted = df.sort_values(by = 'date', ascending = True).reset_index(drop = True)
     
     # TEMP: Limit to last 3 commits for testing
-    df_sorted = df_sorted.tail(3).reset_index(drop=True)
+    # df_sorted = df_sorted.tail(3).reset_index(drop=True)
 
     return df_sorted
 

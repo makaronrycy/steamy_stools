@@ -5,11 +5,7 @@ project_assessment,193194,1,,5.0,"Projekt naszej grupy spełnił wszystkie zało
 project_assessment,193194,2,,4.0,"Projekt drugiej grupy wyglądał profesjonalnie i miał dobry interfejs"
 objectives_assessment,193194,1,,5.0,"Cele projektu zostały w pełni osiągnięte"
 leadership_assessment,193194,1,193194,5.0,"Lider dobrze motywował zespół i rozwiązywał konflikty"
-<<<<<<< HEAD
-teammate_assessment,193194,1,193732,4.0,"Anna zawsze dostarczała swoje zadania na czas"
-=======
 teammate_assessment,193194,1,193732,5.0,"Anna zawsze dostarczała swoje zadania na czas"
->>>>>>> lukasz/final-web-app
 teammate_assessment,193194,1,188943,5.0,"Piotr miał ciekawe pomysły na architekturę systemu"
 teammate_assessment,193194,1,190518,3.0,"Maria potrzebowała wsparcia przy konfiguracji środowiska"
 teammate_assessment,193194,1,199785,4.0,"Tomasz dobrze testował aplikację"
@@ -31,11 +27,7 @@ project_assessment,190518,2,,4.0,"Projekt drugiej grupy był ciekawy, ale mniej 
 objectives_assessment,190518,1,,4.0,"Cele projektu zostały zrealizowane"
 leadership_assessment,190518,1,193194,5.0,"Lider był komunikatywny i pomocny"
 teammate_assessment,190518,1,193194,5.0,"Jan zawsze doradzał technicznie"
-<<<<<<< HEAD
-teammate_assessment,190518,1,193732,4.0,"Anna dobrze planowała prace"
-=======
 teammate_assessment,190518,1,193732,5.0,"Anna dobrze planowała prace"
->>>>>>> lukasz/final-web-app
 teammate_assessment,190518,1,188943,4.0,"Piotr był solidny, ale trochę spóźniał się z kodem"
 teammate_assessment,190518,1,199785,3.0,"Tomasz czasem nie odpowiadał na wiadomości"
 
@@ -45,15 +37,9 @@ project_assessment,199785,2,,4.0,"Projekt drugiej grupy był bardzo dobrze przem
 objectives_assessment,199785,1,,4.0,"Cele projektu zostały osiągnięte"
 leadership_assessment,199785,1,193194,4.0,"Lider dobrze planował spotkania"
 teammate_assessment,199785,1,193194,5.0,"Jan był świetnym liderem"
-<<<<<<< HEAD
-teammate_assessment,199785,1,193732,4.0,"Anna była pomocna w testowaniu"
-teammate_assessment,199785,1,188943,3.0,"Piotr mógł częściej raportować postępy"
-teammate_assessment,199785,1,190518,4.0,"Maria była cierpliwa i dokładna"
-=======
 teammate_assessment,199785,1,193732,5.0,"Anna była pomocna w testowaniu"
 teammate_assessment,199785,1,188943,3.0,"Piotr mógł częściej raportować postępy"
 teammate_assessment,199785,1,190518,3.0,"Maria była mało cierpliwa i dokładna"
->>>>>>> lukasz/final-web-app
 
 # === Projekt 2: Aplikacja do nauki języków ===
 self_assessment,191342,2,,5.0,"Projekt przebiegł bardzo dobrze"

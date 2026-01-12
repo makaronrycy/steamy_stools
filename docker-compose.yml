@@ -9,7 +9,7 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-password}
       - NEO4J_server_memory_pagecache_size=512M
       - NEO4J_server_memory_heap_max__size=512M
     volumes:
@@ -62,9 +62,9 @@ services:
     ports:
       - "10000:10000"
     environment:
-      - NEO4J_URI=neo4j+s://8e31a687.databases.neo4j.io
-      - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=FdPzQzuaFiAlh1oP44u6H4PdT7bicOWEuTpKqwis8HQ
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - WORKERS=1
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
@@ -111,9 +111,9 @@ services:
       - WORKSPACE_DIR=/app/workspace
       - HOST_WORKSPACE_DIR=${HOST_WORKSPACE_DIR:-./backend/workspace}
       - DOCKER_NETWORK=steamy_stools_steamy-network
-      - NEO4J_URI=neo4j+s://8e31a687.databases.neo4j.io
-      - NEO4J_USERNAME=neo4j
-      - NEO4J_PASSWORD=FdPzQzuaFiAlh1oP44u6H4PdT7bicOWEuTpKqwis8HQ
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./backend/workspace:/app/workspace

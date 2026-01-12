@@ -35,29 +35,6 @@ from fastmcp.server.dependencies import get_http_request
 from ..neo4j_retriever import Neo4jRetriever
 import json
 
-# 🔥 MOCKUP DATABASE - WSZYSTKO W PAMIĘCI
-MOCK_STUDENTS = {
-    "2001": {"name": "Jan", "surname": "Kowalski", "index": "2001", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "leader"},
-    "2002": {"name": "Anna", "surname": "Nowak", "index": "2002", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
-    "2003": {"name": "Piotr", "surname": "Wiśniewski", "index": "2003", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
-    "2004": {"name": "Maria", "surname": "Kowalczyk", "index": "2004", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
-    "2005": {"name": "Tomasz", "surname": "Kamiński", "index": "2005", "project_id": "1", "project_name": "System zarządzania zadaniami", "role": "member"},
-    "2006": {"name": "Katarzyna", "surname": "Lewandowska", "index": "2006", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "leader"},
-    "2007": {"name": "Michał", "surname": "Zieliński", "index": "2007", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
-    "2008": {"name": "Magdalena", "surname": "Szymańska", "index": "2008", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
-    "2009": {"name": "Jakub", "surname": "Woźniak", "index": "2009", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
-    "2010": {"name": "Alicja", "surname": "Dąbrowska", "index": "2010", "project_id": "2", "project_name": "Aplikacja do nauki języków", "role": "member"},
-}
-
-MOCK_GRADES = {
-    "self": {},  # {student_index: {"grade": 4.5, "description": "..."}}
-    "teammate": {},  # {f"{grader_index}_{graded_index}": {"grade": 4.0, "description": "..."}}
-    "leader": {},  # {f"{grader_index}_{project_id}": {"grade": 4.0, "description": "..."}}
-    "project": {},  # {f"{grader_index}_{project_id}": {"grade": 4.0, "description": "..."}}
-    "objectives": {},  # {f"{grader_index}_{project_id}": {"grade": 4.0, "description": "..."}}
-}
-
-
 #     _   ____________  __ __  _      __              __    
 #    / | / / ____/ __ \/ // / (_)    / /_____  ____  / /____
 #   /  |/ / __/ / / / / // /_/ /    / __/ __ \/ __ \/ / ___/
@@ -106,6 +83,7 @@ async def get_project_grades_tool(param: GetProjectGradesRequest) -> str:
         return result
     except Exception as e:
         return f"ERROR: {str(e)}"
+
 
 @MCP_SERVER.tool(
     name="get_member_grades_tool",
@@ -236,7 +214,6 @@ async def get_user_info_tool() -> str:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
-
 @MCP_SERVER.tool(
     name="has_graded_all_members_tool",
     description="Sprawdza, czy użytkownik ocenił wszystkich członków zespołu.",
@@ -295,6 +272,7 @@ async def get_ungraded_members_tool() -> str:
     except Exception as e:
         return f"ERROR: {str(e)}"
     
+
 @MCP_SERVER.tool(
     name="get_random_ungraded_member_tool",
     description="Zwraca (deterministycznie) kolejnego nieocenionego członka zespołu.",
@@ -368,6 +346,7 @@ async def has_graded_all_projects_tool() -> str:
     except Exception as e:
         return f"ERROR: {str(e)}"
 
+
 @MCP_SERVER.tool(
     name="get_leader_info_tool",
     description="Zwraca dane lidera projektu użytkownika oraz project_id potrzebny do zapisania oceny.",
@@ -434,7 +413,6 @@ async def get_ungraded_projects_tool() -> str:
 
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
-
 
 
 @MCP_SERVER.tool(
@@ -539,6 +517,7 @@ async def get_next_required_state_tool() -> dict:
         return next_state_info
     except Exception as e:
         return {"error": str(e)}
+    
 
 @MCP_SERVER.tool(
     name="get_conversation_context_tool",
@@ -579,6 +558,8 @@ async def get_conversation_context_tool() -> dict:
         return result
     except Exception as e:
         return {"error": str(e)}
+
+
 @MCP_SERVER.tool(
     name="save_conversation_message_tool",
     description="Saves a conversation message (user or assistant) to the session history.",
@@ -621,6 +602,7 @@ async def save_conversation_message_tool(session_id: str, role: str, content: st
 
     except Exception as e:
         return {"error": str(e)}
+
 
 @MCP_SERVER.tool(
     name="update_session_state_tool",
@@ -719,6 +701,8 @@ async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
         return f"SUCCESS: Self-grade {data['grade']} set for student {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+
+   
 @MCP_SERVER.tool(
     name="identify_teammate_by_name_tool",
     description="Wyszukuje członków zespołu po imieniu (case-insensitive).",
@@ -792,6 +776,8 @@ async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
         return f"SUCCESS: {user_index} graded {param.graded_person_index} with {param.grade}"
     except Exception as e:
         return f"ERROR: {str(e)}"
+
+
 @MCP_SERVER.tool(
     name="is_member_of_project_tool",
     description="Sprawdza, czy użytkownik jest członkiem danego projektu.",
@@ -821,6 +807,8 @@ async def is_member_of_project_tool(project_id: str) -> str:
         return "TRUE" if flag else "FALSE"
     except Exception as e:
         return f"ERROR: {str(e)}"
+
+    
 @MCP_SERVER.tool(
     name="set_leader_grade_tool",
     description="Zapisuje ocenę lidera.",
@@ -996,7 +984,8 @@ async def set_study_program_feedback_tool(param: SetOpenAnswerRequest) -> str:
         return f"SUCCESS: study_program_feedback saved for student {user_index}"
     except Exception as e:
         return f"ERROR: {str(e)}"
-    
+
+
 @MCP_SERVER.tool(
     name="check_teammate_outlier_tool",
     description="Checks if current user's teammate grade is an outlier vs peers. Returns JSON.",
@@ -1102,7 +1091,8 @@ async def check_teammate_outlier_tool(graded_person_index: str, threshold: float
 
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
-    
+
+
 @MCP_SERVER.tool(
     name="append_teammate_outlier_followup_tool",
     description="Appends outlier follow-up to the latest teammate assessment Answer for (grader->graded).",
@@ -1141,6 +1131,7 @@ async def append_teammate_outlier_followup_tool(graded_person_index: str, follow
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------ASSUMPTION TOOLS----------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 @MCP_SERVER.tool(
     name="get_unevaluated_assumptions_tool",
