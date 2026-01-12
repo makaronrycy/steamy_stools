@@ -2,11 +2,20 @@
 import React, { useState } from "react";
 import { api } from "../services/api";
 
+/**
+ * Panel administratora do zarządzania systemem.
+ * Umożliwia uruchamianie analiz GitHub, inicjalizację baz danych,
+ * zarządzanie założeniami i generowanie raportów.
+ */
 export const AdminPanel: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [messageType, setMessageType] = useState<"success" | "error" | "info">("info");
 
+  /**
+   * Obsługuje uruchomienie analizy GitHub.
+   * Wywołuje API i aktualizuje stan komunikatów.
+   */
   const handleGithubAnalysis = async () => {
     setIsAnalyzing(true);
     setMessage("Rozpoczynanie analizy GitHub...");
@@ -31,6 +40,10 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  /**
+   * Obsługuje inicjalizację bazy danych Neo4j.
+   * Tworzy niezbędne struktury w grafowej bazie danych.
+   */
   const handleInitDatabase = async () => {
     setIsAnalyzing(true);
     setMessage("Inicjalizowanie bazy danych...");
@@ -57,7 +70,10 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-
+  /**
+   * Obsługuje tworzenie katalogów założeń projektowych.
+   * Tworzy strukturę folderów dla każdego projektu.
+   */
   const handleAssumptionsInit = async () => {
     setIsAnalyzing(true);
     setMessage("Tworzenie katalogów założeń...");
@@ -82,7 +98,10 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-
+  /**
+   * Obsługuje uruchomienie analizy założeń projektowych.
+   * Przetwarza pliki założeń i zapisuje wyniki.
+   */
   const handleAssumptionsAnalyze = async () => {
     setIsAnalyzing(true);
     setMessage("Trwa analiza założeń (może to zająć chwilę)...");
@@ -106,7 +125,10 @@ export const AdminPanel: React.FC = () => {
       setIsAnalyzing(false);
     }
   };
-
+  /**
+   * Obsługuje generowanie raportów CSV.
+   * Tworzy raporty z ocenami i statystykami z bazy Neo4j.
+   */
   const handleGenerateReports = async () => {
     setIsAnalyzing(true);
     setMessage("Generowanie raportów (może to potrwać kilka minut)...");

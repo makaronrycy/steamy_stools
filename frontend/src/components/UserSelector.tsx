@@ -1,27 +1,53 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../services/api";
 
+/**
+ * Typ reprezentujący osobę w systemie.
+ */
 type Person = {
+    /** Imię osoby */
     name: string;
+    /** Nazwisko osoby */
     surname: string;
+    /** Numer indeksu (unikalne ID) */
     index: string;
 };
 
+/**
+ * Typ reprezentujący projekt z przypisanymi osobami.
+ */
 type Project = {
+    /** Unikalne ID projektu */
     project_id: string;
+    /** Nazwa projektu */
     project_name: string;
+    /** Lista osób przypisanych do projektu */
     people: Person[];
 };
 
+/**
+ * Interfejs props dla komponentu UserSelector.
+ */
 interface UserSelectorProps {
+    /** Callback wywoływany po wybraniu użytkownika */
     onSelect: (userId: string, userName: string) => void;
 }
 
+/**
+ * Komponent do wyboru użytkownika z listy projektów.
+ * Wyświetla karty projektów z listą osób do wyboru.
+ * 
+ * @param props - Props komponentu
+ * @param props.onSelect - Callback wywoływany z ID i nazwą wybranego użytkownika
+ */
 const UserSelector: React.FC<UserSelectorProps> = ({ onSelect }) => {
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    /**
+     * Pobiera listę osób z API podczas montowania komponentu.
+     */
     useEffect(() => {
         const fetchPeople = async () => {
             try {

@@ -7,16 +7,33 @@ import UserSelector from "./components/UserSelector";
 import { useWebSocket } from "./hooks/useWebSocket";
 import type { Message } from "./types";
 
+/** URL serwera WebSocket - dynamicznie określany na podstawie środowiska */
 const WS_URL = import.meta.env.VITE_BACKEND_URL
   ? `ws://${new URL(import.meta.env.VITE_BACKEND_URL).host}/ws`
   : `ws://${location.hostname}:8000/ws`;
 
+/**
+ * Główny komponent aplikacji.
+ * Zarządza routingiem, stanem użytkownika i połączeniem WebSocket.
+ */
 function App() {
   const { isConnected, connect } = useWebSocket(WS_URL);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
   const [showAdminAccess, setShowAdminAccess] = useState(false);
+
+  /**
+   * Normalizuje ścieżkę URL usuwając końcowe slashe.
+   * @param path - Ścieżka do znormalizowania
+   * @returns Znormalizowana ścieżka
+   */
   const normalizePath = (path: string) => path.replace(/\/+$/, "") || "/";
+
+  /**
+   * Sprawdza czy aktualna lokalizacja to ścieżka admina.
+   * @param loc - Obiekt Location do sprawdzenia
+   * @returns true jeśli to ścieżka /admin
+   */
   const isAdminPath = (loc: Location) => {
     const pathname = normalizePath(loc.pathname);
     const hashPath = loc.hash.replace(/^#/, "");
@@ -33,6 +50,9 @@ function App() {
     connect();
   }, [connect]);
 
+  /**
+   * Nasłuchuje zmian w routingu (popstate/hashchange).
+   */
   useEffect(() => {
     const handleRouteChange = () => setIsAdminRoute(isAdminPath(window.location));
     window.addEventListener("popstate", handleRouteChange);
@@ -43,8 +63,17 @@ function App() {
     };
   }, []);
 
+  /**
+   * Dodaje nową wiadomość do listy czatu.
+   * @param m - Wiadomość do dodania
+   */
   const handleMessageAdded = (m: Message) => setChatMessages((p) => [...p, m]);
 
+  /**
+   * Obsługuje wybór użytkownika z listy.
+   * @param id - ID wybranego użytkownika
+   * @param name - Nazwa wybranego użytkownika
+   */
   const handleUserSelect = (id: string, name: string) => {
     setUserId(id);
     setUserName(name);

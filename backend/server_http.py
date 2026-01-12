@@ -1,4 +1,15 @@
 # server_http.py
+"""
+Serwer HTTP/WebSocket dla aplikacji Hot Seat Game.
+
+Zawiera API FastAPI z endpointami do:
+- Komunikacji WebSocket
+- Proxy do agent-client i agent-server
+- Analizy GitHub
+- Inicjalizacji bazy Neo4j
+- Zarządzania założeniami projektowymi
+- Generowania raportów
+"""
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
@@ -33,6 +44,17 @@ def to_jsonable(obj: Any) -> Any:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Kontekst cyklu życia aplikacji FastAPI.
+    
+    Inicjalizuje klienta OpenAI przy starcie aplikacji.
+    
+    Args:
+        app: Instancja aplikacji FastAPI
+        
+    Yields:
+        None - aplikacja działa do zamknięcia
+    """
     # OpenAI (LLM) — klucz z ENV
     app.state.openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
@@ -50,18 +72,47 @@ app.add_middleware(
 )
 
 class ConnectionManager:
+    """
+    Menedżer połączeń WebSocket.
+    
+    Zarządza listą aktywnych połączeń WebSocket i umożliwia
+    broadcast wiadomości do wszystkich podłączonych klientów.
+    
+    Attributes:
+        active_connections: Lista aktywnych połączeń WebSocket
+    """
+    
     def __init__(self):
+        """Inicjalizuje menedżera z pustą listą połączeń."""
         self.active_connections: List[WebSocket] = []
     
     async def connect(self, websocket: WebSocket):
+        """
+        Akceptuje i rejestruje nowe połączenie WebSocket.
+        
+        Args:
+            websocket: Obiekt WebSocket do połączenia
+        """
         await websocket.accept()
         self.active_connections.append(websocket)
     
     def disconnect(self, websocket: WebSocket):
+        """
+        Usuwa połączenie WebSocket z listy aktywnych.
+        
+        Args:
+            websocket: Obiekt WebSocket do usunięcia
+        """
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
     
     async def broadcast(self, message: dict):
+        """
+        Wysyła wiadomość do wszystkich aktywnych połączeń.
+        
+        Args:
+            message: Słownik z wiadomością do wysłania jako JSON
+        """
         for ws in list(self.active_connections):
             try:
                 await ws.send_json(message)
@@ -72,6 +123,12 @@ manager = ConnectionManager()
 
 @app.get("/")
 async def root():
+    """
+    Endpoint główny - zwraca informacje o API.
+    
+    Returns:
+        dict: Informacje o nazwie, wersji i dostępnych endpointach
+    """
     return {
         "name": "Hot Seat Game API",
         "version": "2.0 (FastMCP client)",
@@ -86,10 +143,28 @@ async def root():
 
 @app.get("/health")
 async def health():
+    """
+    Endpoint health check - sprawdza czy serwer działa.
+    
+    Returns:
+        dict: Status "ok" i flaga MCP
+    """
     return {"status": "ok", "mcp": True}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """
+    Endpoint WebSocket do komunikacji w czasie rzeczywistym.
+    
+    Obsługuje połączenia WebSocket, odbiera wiadomości JSON
+    i odsyła potwierdzenia. Głównie służy do broadcastów i statusów.
+    
+    Args:
+        websocket: Obiekt WebSocket
+        
+    Note:
+        Właściwe wywołania narzędzi idą przez agent-client (/start_agent)
+    """
     await manager.connect(websocket)
     try:
         while True:
@@ -111,8 +186,16 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.post("/api/tools/{tool_name}")
 async def call_tool(tool_name: str, arguments: Dict[str, Any]):
     """
-    Deprecated: Tool calls now go through agent-client on port 3000.
-    Use POST /start_agent on agent-client instead.
+    [DEPRECATED] Wywołanie narzędzia - ten endpoint jest przestarzały.
+    
+    Wywołania narzędzi powinny iść przez agent-client na porcie 3000.
+    
+    Args:
+        tool_name: Nazwa narzędzia do wywołania
+        arguments: Słownik z argumentami dla narzędzia
+        
+    Returns:
+        dict: Komunikat o przestarzałym endpoincie
     """
     return {
         "error": "deprecated",
@@ -121,7 +204,18 @@ async def call_tool(tool_name: str, arguments: Dict[str, Any]):
 
 @app.post("/api/llm")
 async def chat_with_llm(request: Dict[str, Any]):
-    """Proxy do LLM (OpenAI) — klucz po stronie serwera, front nie widzi SECRETów."""
+    """
+    Proxy do LLM (OpenAI) — klucz po stronie serwera.
+    
+    Frontend nie widzi SECRETów - wszystkie wywołania OpenAI
+    przechodzą przez ten bezpieczny endpoint.
+    
+    Args:
+        request: Słownik z kluczem "message" zawierającym treść wiadomości
+        
+    Returns:
+        dict: Odpowiedź LLM z kluczem "response" lub "error"
+    """
     try:
         message = request.get("message", "")
         response = app.state.openai.chat.completions.create(
@@ -141,9 +235,20 @@ async def chat_with_llm(request: Dict[str, Any]):
 @app.post("/api/agent/start")
 async def proxy_start_agent(request: Dict[str, Any]):
     """
-    Proxy endpoint dla agent-client.
-    Frontend wywołuje ten endpoint, a backend przekazuje request do agent-client.
-    Rozwiązuje problem CORS (Sanic nie obsługuje CORS domyślnie).
+    Proxy endpoint dla agent-client w celu obejścia CORS.
+    
+    Frontend wywołuje ten endpoint, a backend przekazuje request
+    do agent-client na porcie 3000. Sanic domyślnie nie obsługuje CORS.
+    
+    Args:
+        request: Request JSON do przekazania do agent-client
+                 (zawiera user_id, answer, question_target)
+        
+    Returns:
+        dict: Odpowiedź od agent-client lub komunikat o błędzie/timeout
+        
+    Raises:
+        httpx.TimeoutException: Gdy agent nie odpowie w ciągu 5 minut
     """
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -162,7 +267,13 @@ async def proxy_start_agent(request: Dict[str, Any]):
 async def proxy_list_people():
     """
     Pobiera listę osób z agent-server.
+    
     Proxy dla endpointu GET /list_people na porcie 10000.
+    Zwraca listę projektów z przypisanymi osobami.
+    
+    Returns:
+        list: Lista projektów z osobami (project_id, project_name, people)
+        dict: Komunikat o błędzie w przypadku niepowodzenia
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -176,8 +287,22 @@ async def proxy_list_people():
 @app.post("/api/github/analyze")
 async def analyze_github(background_tasks: BackgroundTasks):
     """
-    Uruchamia analizę repozytorium GitHub.
-    Wykonuje się w tle, aby nie blokować requestu.
+    Uruchamia analizę repozytorium GitHub w tle.
+    
+    Wykonuje pełną analizę repozytoriów GitHub obejmującą:
+    - Metryki kodu (SonarQube)
+    - Wykrywanie niepotrzebnych commitów
+    - Regularność commitów
+    
+    Analiza wykonuje się asynchronicznie, aby nie blokować requestu.
+    Wyniki są zapisywane do MongoDB.
+    
+    Args:
+        background_tasks: Obiekt FastAPI do zarządzania zadaniami w tle
+        
+    Returns:
+        dict: Status "started" przy pomyślnym uruchomieniu
+              Status "error" przy błędzie
     """
     try:
         # Opcja 1: Uruchom w tle (zalecane dla długich operacji)
@@ -202,7 +327,17 @@ async def analyze_github(background_tasks: BackgroundTasks):
 @app.get("/api/github/status")
 async def github_analysis_status():
     """
-    Sprawdza status analizy GitHub (opcjonalnie - możesz dodać tracking stanu).
+    Sprawdza status analizy GitHub.
+    
+    Endpoint przygotowany do implementacji trackingu stanu analizy
+    z wykorzystaniem Redis lub bazy danych.
+    
+    Returns:
+        dict: Status analizy (obecnie not_implemented)
+        
+    Note:
+        Do zaimplementowania z wykorzystaniem Redis/database
+        dla śledzenia postępów długotrwałych analiz.
     """
     return {
         "status": "not_implemented",
@@ -212,7 +347,18 @@ async def github_analysis_status():
 @app.post("/api/neo4j/init")
 async def init_neo4j_database():
     """
-    Inicjalizuje bazę danych Neo4j uruchamiając skrypt w kontenerze steamy-agent-server.
+    Inicjalizuje bazę danych Neo4j.
+    
+    Uruchamia skrypt inicjalizacyjny w kontenerze steamy-agent-server
+    z odpowiednimi zmiennymi środowiskowymi (NEO4J_URI, USERNAME, PASSWORD).
+    Konfiguracja jest pobierana z pliku agent_server/.env.
+    
+    Returns:
+        dict: Status "success" z logami przy powodzeniu
+              Status "error" z komunikatem błędu przy niepowodzeniu
+              
+    Note:
+        Wymaga uruchomionego kontenera Docker 'steamy-agent-server'
     """
     try:
         # 1. Uruchom skrypt z odpowiednim URI
@@ -261,7 +407,13 @@ async def init_neo4j_database():
 @app.post("/api/assumptions/init")
 async def init_assumptions_dirs():
     """
-    Tworzy katalogi na założenia projektowe (assumptions).
+    Tworzy katalogi na założenia projektowe.
+    
+    Inicjalizuje strukturę katalogów assumptions/ dla każdego projektu,
+    zawierającą podfoldery na założenia startowe i raporty.
+    
+    Returns:
+        dict: Status operacji i komunikat o utworzonych katalogach
     """
     try:
         result = create_assumption_dirs()
@@ -275,8 +427,19 @@ async def init_assumptions_dirs():
 @app.post("/api/assumptions/analyze")
 async def run_assumptions_analysis(background_tasks: BackgroundTasks):
     """
-    Uruchamia analizę założeń (objectives.py) w tle.
-    Analizuje pliki w assumptions/[projekt]/start_assumptions.
+    Uruchamia analizę założeń projektowych.
+    
+    Przetwarza pliki w katalogach assumptions/[projekt]/start_assumptions
+    przy użyciu OpenAI do oceny zgodności założeń z wymaganiami.
+    
+    Args:
+        background_tasks: Obiekt FastAPI do zarządzania zadaniami w tle
+        
+    Returns:
+        dict: Wynik analizy z statusem i ewentualnymi błędami
+        
+    Note:
+        Wywołuje OpenAI wielokrotnie - może zająć dłużej przy wielu projektach
     """
     try:
         # For long running tasks, use background logic or just run sync if it's fast enough
@@ -295,8 +458,20 @@ async def run_assumptions_analysis(background_tasks: BackgroundTasks):
 @app.post("/api/reports/generate")
 async def generate_reports(background_tasks: BackgroundTasks):
     """
-    Generuje raporty CSV z bazy Neo4j.
-    Wywołuje skrypty generate_reports.py i generate_final_grades.py z agent-server.
+    Generuje raporty CSV z ocenami i statystykami.
+    
+    Wywołuje endpoint /generate_reports na agent-server, który
+    uruchamia skrypty generate_reports.py i generate_final_grades.py.
+    Pobiera dane z bazy Neo4j i tworzy pliki CSV.
+    
+    Args:
+        background_tasks: Obiekt FastAPI do zarządzania zadaniami w tle
+        
+    Returns:
+        dict: Status operacji i komunikat
+        
+    Raises:
+        httpx.TimeoutException: Gdy generowanie przekroczy 5 minut
     """
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:

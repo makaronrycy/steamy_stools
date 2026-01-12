@@ -3,15 +3,32 @@ import React, { useState } from "react";
 
 const ADMIN_KEY = "admin123"; // Klucz dostępu do panelu admina
 
+/**
+ * Interfejs props dla komponentu AdminAccess.
+ */
 interface AdminAccessProps {
+    /** Callback wywoływany po pomyślnym uwierzytelnieniu */
     onAccessGranted: () => void;
 }
 
+/**
+ * Komponent do autoryzacji dostępu do panelu administratora.
+ * Wymaga podania prawidłowego klucza dostępu.
+ * 
+ * @param props - Props komponentu
+ * @param props.onAccessGranted - Callback wywoływany po pomyślnym uwierzytelnieniu
+ */
 export const AdminAccess: React.FC<AdminAccessProps> = ({ onAccessGranted }) => {
     const [inputKey, setInputKey] = useState("");
     const [error, setError] = useState("");
     const [showInput, setShowInput] = useState(false);
 
+    /**
+     * Obsługuje wysłanie formularza autoryzacji.
+     * Weryfikuje klucz dostępu i wywołuje callback przy sukcesie.
+     * 
+     * @param e - Zdarzenie formularza
+     */
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (inputKey === ADMIN_KEY) {

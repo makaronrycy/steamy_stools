@@ -4,12 +4,24 @@ import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognitio
 import type { Message } from "../types";
 import { api } from "../services/api";
 
+/**
+ * Interfejs props dla komponentu ChatPanel.
+ */
 interface ChatPanelProps {
+  /** Lista wiadomości do wyświetlenia */
   messages: Message[];
+  /** Callback wywoływany po dodaniu nowej wiadomości */
   onMessageAdded: (message: Message) => void;
+  /** ID zalogowanego użytkownika */
   userId: string;
 }
 
+/**
+ * Panel czatu do komunikacji z LLM (GPT).
+ * Obsługuje wprowadzanie tekstu oraz rozpoznawanie mowy.
+ * 
+ * @param props - Props komponentu
+ */
 export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, userId }) => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -24,14 +36,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, 
     browserSupportsSpeechRecognition,
   } = useSpeechRecognition();
 
-  // Speech recognition hook
-  const {
-    transcript,
-    listening,
-    resetTranscript,
-    browserSupportsSpeechRecognition,
-  } = useSpeechRecognition();
-
+  /**
+   * Przewija widok czatu do ostatniej wiadomości.
+   */
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -40,9 +47,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, 
     scrollToBottom();
   }, [messages]);
 
-<<<<<<< HEAD
-=======
-  // Auto-trigger agent's first message when component mounts
+  /**
+   * Pobiera początkowe powitanie od agenta przy pierwszym montowaniu.
+   * Zapobiega podwójnemu wywołaniu w StrictMode.
+   */
   useEffect(() => {
     const fetchInitialGreeting = async () => {
       if (hasFetchedInitial.current) return; // Prevent double fetch
@@ -69,7 +77,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, 
     fetchInitialGreeting();
   }, []); // Run only once on mount
 
->>>>>>> lukasz/final-web-app
   // Update input when transcript changes
   useEffect(() => {
     if (transcript) {
@@ -77,6 +84,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, 
     }
   }, [transcript]);
 
+  /**
+   * Obsługuje wysyłanie wiadomości do LLM.
+   * Dodaje wiadomość użytkownika, wysyła do API i odbiera odpowiedź.
+   */
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -116,6 +127,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, 
     }
   };
 
+  /**
+   * Przełącza stan nasłuchiwania rozpoznawania mowy.
+   * Uruchamia lub zatrzymuje nagrywanie głosowe w języku polskim.
+   */
   const toggleListening = () => {
     if (listening) {
       SpeechRecognition.stopListening();
