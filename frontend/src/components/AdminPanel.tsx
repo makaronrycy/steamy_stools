@@ -107,6 +107,30 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  const handleGenerateReports = async () => {
+    setIsAnalyzing(true);
+    setMessage("Generowanie raportów (może to potrwać kilka minut)...");
+    setMessageType("info");
+
+    try {
+      const result = await api.generateReports();
+
+      if (result.status === "success") {
+        setMessage(result.message || "Raporty zostały wygenerowane pomyślnie!");
+        setMessageType("success");
+      } else {
+        setMessage(result.message || "Błąd podczas generowania raportów.");
+        setMessageType("error");
+      }
+    } catch (error: any) {
+      setMessage("Nie udało się wygenerować raportów.");
+      setMessageType("error");
+      console.error("Reports Generation Error:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   return (
     <div className="admin-panel">
       <h2>Panel Administratora</h2>
@@ -153,6 +177,23 @@ export const AdminPanel: React.FC = () => {
               style={{ marginLeft: "10px", backgroundColor: "#9b59b6" }}
             >
               2. Uruchom Analizę Założeń
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginTop: "20px" }}>
+          <h4>📊 Generowanie Raportów</h4>
+          <p style={{ fontSize: "14px", opacity: 0.8 }}>
+            Generuje raporty CSV z ocenami i statystykami z bazy Neo4j.
+          </p>
+          <div className="button-group">
+            <button
+              onClick={handleGenerateReports}
+              disabled={isAnalyzing}
+              className="btn-primary"
+              style={{ backgroundColor: "#3498db" }}
+            >
+              📄 Generuj Raporty CSV
             </button>
           </div>
         </div>

@@ -1,3 +1,24 @@
+"""
+MCP Tools for the Student Grading Interview System.
+
+This module defines all MCP tools used by agents to interact with the
+Neo4j database during interviews. Tools are categorized as:
+
+GET Tools:
+    - Retrieve grades, user info, completion status
+    - Check completion and ungraded items
+    - Session and conversation management
+
+SET Tools:
+    - Save self, teammate, leader, and project grades
+    - Save open answer responses (masters intent, feedback)
+    - Manage session state and conversation history
+
+ASSUMPTION Tools:
+    - Retrieve and evaluate project assumptions
+    - Check evaluation consensus against ground truth
+"""
+
 from .. import MCP_SERVER
 from .models import (
     NameEntity, Message,
@@ -55,7 +76,13 @@ MOCK_GRADES = {
 )
 async def get_project_grades_tool(param: GetProjectGradesRequest) -> str:
     """
-    Pobiera oceny projektu wraz z informacją o członkostwie oceniającego.
+    Retrieves all grades for a project with grader membership info.
+    
+    Args:
+        param (GetProjectGradesRequest): Request with project_id.
+    
+    Returns:
+        str: Formatted list of grades with grader info and membership status.
     """
     try:
         
@@ -86,6 +113,15 @@ async def get_project_grades_tool(param: GetProjectGradesRequest) -> str:
     tags=set(['retrieval', 'grades', 'member']),
 )
 async def get_member_grades_tool(param: GetMemberGradesRequest) -> str:
+    """
+    Retrieves all grades given to a specific team member.
+    
+    Args:
+        param (GetMemberGradesRequest): Request with member name to look up.
+    
+    Returns:
+        str: Formatted list of grades with grader index and leader flag.
+    """
     try:
         retriever = Neo4jRetriever()
         grades = retriever.get_member_grades(name=param.name)
@@ -110,6 +146,15 @@ async def get_member_grades_tool(param: GetMemberGradesRequest) -> str:
     tags=set(['retrieval', 'role']),
 )
 async def is_leader_tool(param: IsLeaderRequest) -> str:
+    """
+    Checks if a student is a project leader.
+    
+    Args:
+        param (IsLeaderRequest): Request with student name.
+    
+    Returns:
+        str: "TRUE" if student is leader, "FALSE" otherwise.
+    """
     try:
         retriever = Neo4jRetriever()
         flag = retriever.is_leader(name=param.name)
@@ -125,6 +170,15 @@ async def is_leader_tool(param: IsLeaderRequest) -> str:
     tags=set(['retrieval', 'project']),
 )
 async def get_project_members_tool(param: GetProjectMembersRequest) -> str:
+    """
+    Retrieves all member indexes for a given project.
+    
+    Args:
+        param (GetProjectMembersRequest): Request with project_id.
+    
+    Returns:
+        str: Formatted string with project members list.
+    """
     try:
         retriever = Neo4jRetriever()
         members = retriever.get_project_members(project_id=param.project_id)
@@ -140,17 +194,24 @@ async def get_project_members_tool(param: GetProjectMembersRequest) -> str:
     tags=set(['retrieval']),
 )
 async def get_user_info_tool() -> str:
+    """
+    Retrieves current user's information from the database.
+    
+    Uses the user_id header to identify the current user and
+    returns their profile including name, surname, github, and project.
+    
+    Returns:
+        str: JSON string with user info or error message.
+    """
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
         user_index = request.headers.get("user_id")
         if not user_index:
             return "ERROR: 'user_index' header not found"
-            
         with retriever.driver.session() as session:
             res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
             user_name = res["name"] if res else None
-            
         if not user_name:
              return f"No user found for index {user_index}"
 
@@ -182,6 +243,15 @@ async def get_user_info_tool() -> str:
     tags=set(['retrieval', 'progress']),
 )
 async def has_graded_all_members_tool(param: HasGradedAllMembersRequest) -> str:
+    """
+    Checks if user has graded all team members.
+    
+    Args:
+        param (HasGradedAllMembersRequest): Request with user name.
+    
+    Returns:
+        str: "TRUE" if all members graded, "FALSE" otherwise.
+    """
     try:
         retriever = Neo4jRetriever()
         flag = retriever.has_graded_all_members(name=param.name)
@@ -197,6 +267,14 @@ async def has_graded_all_members_tool(param: HasGradedAllMembersRequest) -> str:
     tags=set(['retrieval', 'progress']),
 )
 async def get_ungraded_members_tool() -> str:
+    """
+    Returns list of teammates the current user hasn't graded yet.
+    
+    Uses user_id from request headers to identify the grader.
+    
+    Returns:
+        str: Formatted list of ungraded teammate indexes.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -223,6 +301,14 @@ async def get_ungraded_members_tool() -> str:
     tags=set(['retrieval', 'progress']),
 )
 async def get_random_ungraded_member_tool() -> str:
+    """
+    Returns the next ungraded teammate (deterministically by index order).
+    
+    Uses user_id from request headers to identify the grader.
+    
+    Returns:
+        str: JSON with next ungraded teammate {index, name, surname} or null.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -238,7 +324,7 @@ async def get_random_ungraded_member_tool() -> str:
         if not user_name:
              return f"No user found for index {user_index}"
 
-        member = retriever.get_random_ungraded_member(name=user_name)
+        member = retriever.get_random_ungraded_member(index=user_index)
         retriever.close()
 
         # Zwracamy JSON: dict albo null
@@ -254,6 +340,14 @@ async def get_random_ungraded_member_tool() -> str:
     tags=set(['retrieval', 'progress']),
 )
 async def has_graded_all_projects_tool() -> str:
+    """
+    Checks if user has graded all projects.
+    
+    Uses user_id from request headers to identify the grader.
+    
+    Returns:
+        str: "TRUE" if all projects graded, "FALSE" otherwise.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -280,6 +374,14 @@ async def has_graded_all_projects_tool() -> str:
     tags=set(['retrieval', 'role']),
 )
 async def get_leader_info_tool() -> str:
+    """
+    Returns leader info for the current user's project.
+    
+    Uses user_id from request headers to find the user's project leader.
+    
+    Returns:
+        str: JSON with leader data {name, surname, index, project_id}.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -302,6 +404,14 @@ async def get_leader_info_tool() -> str:
     tags=set(['retrieval', 'progress']),
 )
 async def get_ungraded_projects_tool() -> str:
+    """
+    Returns list of projects the current user hasn't graded yet.
+    
+    Uses user_id from request headers to identify the grader.
+    
+    Returns:
+        str: JSON array of ungraded projects [{project_id, project_name}].
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -333,6 +443,14 @@ async def get_ungraded_projects_tool() -> str:
     tags=set(['retrieval']),
 )
 async def get_student_completion_status_tool() -> str:
+    """
+    Returns detailed completion status for the current user.
+    
+    Uses user_id from request headers to identify the student.
+    
+    Returns:
+        str: String representation of completion status dict.
+    """
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
@@ -361,9 +479,22 @@ async def get_student_completion_status_tool() -> str:
 )
 async def get_next_required_state_tool() -> dict:
     """
-    Determines the next state based on what assessments are incomplete.
-    Uses completion status to intelligently determine workflow progression.
-    Also returns the last_state from the conversation session for verification purposes.
+    Determines the next workflow state based on completion status.
+    
+    Analyzes which assessments are incomplete and returns the next
+    required state in priority order. Also includes session info
+    for state verification.
+    
+    Returns:
+        dict: State info with keys:
+            - next_state (str): Name of next required state
+            - reason (str): Why this state is next
+            - details (dict): Additional context (e.g., target info)
+            - last_state (str | None): Previous state from session
+            - session_id (str | None): Current session ID
+            - current_state_in_session (str | None): Session's current state
+            - pending_target_json (str | None): Pending target entity JSON
+            - pending_substate_json (str | None): Pending substate JSON
     """
     try:
         retriever = Neo4jRetriever()
@@ -497,6 +628,17 @@ async def save_conversation_message_tool(session_id: str, role: str, content: st
     tags=set(['state', 'session', 'workflow']),
 )
 async def update_session_state_tool(new_state: str, pending_target: dict | None = None, pending_substate: dict | None = None) -> dict:
+    """
+    Updates the session state after completing a workflow step.
+    
+    Args:
+        new_state (str): The new state to transition to.
+        pending_target (dict | None): Optional target entity context.
+        pending_substate (dict | None): Optional substate context.
+    
+    Returns:
+        dict: Success info with session_id and state transition details.
+    """
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
@@ -551,7 +693,13 @@ async def update_session_state_tool(new_state: str, pending_target: dict | None 
 )
 async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
     """
-    Ustawia samoocenę studenta.
+    Saves the user's self-assessment grade and description.
+    
+    Args:
+        param (SetSelfGradeRequest): Request with grade (2.0-5.0) and description.
+    
+    Returns:
+        str: Success message or error details.
     """
     try:
         request = get_http_request()
@@ -577,14 +725,28 @@ async def set_self_grade_tool(param: SetSelfGradeRequest) -> str:
     tags=set(['retrieval', 'teammate', 'search']),
 )
 async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -> str:
+    """
+    Searches for teammates by name (case-insensitive).
+    
+    Args:
+        param (IdentifyTeammateByNameRequest): Request with name and optional surname.
+    
+    Returns:
+        str: Formatted list of matching teammates with name, surname, and index.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
-        if not user_index:
-            return "ERROR: 'user_id' header not found"
         retriever = Neo4jRetriever()
+
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=user_index).single()
+            user_name = res["name"] if res else None
+            
+        if not user_name:
+             return f"No user found for index {user_index}"
         teammates = retriever.identify_teammate_by_name(
-            grader_index=user_index,
+            grader_name=user_name,
             name=param.name,
             surname=param.surname
         )
@@ -605,6 +767,15 @@ async def identify_teammate_by_name_tool(param: IdentifyTeammateByNameRequest) -
     tags=set(['grading']),
 )
 async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
+    """
+    Saves a teammate assessment grade.
+    
+    Args:
+        param (SetTeammateGradeRequest): Request with graded_person_index, grade, and description.
+    
+    Returns:
+        str: Success message or error details.
+    """
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
@@ -621,13 +792,50 @@ async def set_teammate_grade_tool(param: SetTeammateGradeRequest) -> str:
         return f"SUCCESS: {user_index} graded {param.graded_person_index} with {param.grade}"
     except Exception as e:
         return f"ERROR: {str(e)}"
-
+@MCP_SERVER.tool(
+    name="is_member_of_project_tool",
+    description="Sprawdza, czy użytkownik jest członkiem danego projektu.",
+    tags=set(['retrieval', 'role']),
+)
+async def is_member_of_project_tool(project_id: str) -> str:
+    """
+    Checks if the current user is a member of a specific project.
+    
+    Args:
+        project_id (str): The project ID to check membership for.
+    
+    Returns:
+        str: "TRUE" if user is a member, "FALSE" otherwise.
+    """
+    try:
+        retriever = Neo4jRetriever()
+        request = get_http_request()
+        user_index = request.headers.get("user_id")
+        if not user_index:
+            return "ERROR: 'user_id' header not found"
+        flag = retriever.is_member_of_project(
+            student_index=user_index,
+            project_id=project_id
+        )
+        retriever.close()
+        return "TRUE" if flag else "FALSE"
+    except Exception as e:
+        return f"ERROR: {str(e)}"
 @MCP_SERVER.tool(
     name="set_leader_grade_tool",
     description="Zapisuje ocenę lidera.",
     tags=set(['grading']),
 )
 async def set_leader_grade_tool(param: SetLeaderGradeRequest) -> str:
+    """
+    Saves a leadership assessment grade.
+    
+    Args:
+        param (SetLeaderGradeRequest): Request with project_id, grade, and description.
+    
+    Returns:
+        str: Success message or error details.
+    """
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
@@ -652,6 +860,15 @@ async def set_leader_grade_tool(param: SetLeaderGradeRequest) -> str:
     tags=set(['grading']),
 )
 async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
+    """
+    Saves a project assessment grade.
+    
+    Args:
+        param (SetProjectGradeRequest): Request with project_id, grade, and description.
+    
+    Returns:
+        str: Success message or error details.
+    """
     try:
         retriever = Neo4jRetriever()
         request = get_http_request()
@@ -676,6 +893,17 @@ async def set_project_grade_tool(param: SetProjectGradeRequest) -> str:
     tags=set(['grading']),
 )
 async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequest) -> str:
+    """
+    Saves a project objectives assessment grade.
+    
+    Automatically fetches project_id from the current user's project.
+    
+    Args:
+        param (SetProjectObjectivesGradeRequest): Request with grade and description.
+    
+    Returns:
+        str: Success message or error details.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -708,6 +936,15 @@ async def set_project_objectives_grade_tool(param: SetProjectObjectivesGradeRequ
     tags=set(['grading', 'interview', 'open_answer']),
 )
 async def set_masters_intent_tool(param: SetOpenAnswerRequest) -> str:
+    """
+    Saves the user's response about continuing to master's studies.
+    
+    Args:
+        param (SetOpenAnswerRequest): Request with answer text.
+    
+    Returns:
+        str: Success message or error details.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -733,6 +970,15 @@ async def set_masters_intent_tool(param: SetOpenAnswerRequest) -> str:
     tags=set(['grading', 'interview', 'open_answer']),
 )
 async def set_study_program_feedback_tool(param: SetOpenAnswerRequest) -> str:
+    """
+    Saves the user's feedback about the study program.
+    
+    Args:
+        param (SetOpenAnswerRequest): Request with answer text.
+    
+    Returns:
+        str: Success message or error details.
+    """
     try:
         request = get_http_request()
         user_index = request.headers.get("user_id")
@@ -756,7 +1002,18 @@ async def set_study_program_feedback_tool(param: SetOpenAnswerRequest) -> str:
     description="Checks if current user's teammate grade is an outlier vs peers. Returns JSON.",
     tags=set(['retrieval', 'analysis']),
 )
-async def check_teammate_outlier_tool(graded_person_index: str, threshold: float = 1.0, min_peers: int = 3) -> str:
+async def check_teammate_outlier_tool(graded_person_index: str, threshold: float = 1.0, min_peers: int = 1) -> str:
+    """
+    Checks if the user's grade for a teammate is an outlier compared to peer grades.
+    
+    Args:
+        graded_person_index (str): Index of the person being graded.
+        threshold (float): Minimum difference from median to be considered outlier. Defaults to 1.0.
+        min_peers (int): Minimum peer grades required for comparison. Defaults to 1.
+    
+    Returns:
+        str: JSON with outlier analysis {eligible, is_outlier, user_grade, peer_median, followup_question}.
+    """
     try:
         request = get_http_request()
         grader_index = request.headers.get("user_id")
@@ -764,9 +1021,18 @@ async def check_teammate_outlier_tool(graded_person_index: str, threshold: float
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
 
         retriever = Neo4jRetriever()
+        
+        # Get the graded person's name to fetch their grades
+        with retriever.driver.session() as session:
+            res = session.run("MATCH (s:Student {index: $index}) RETURN s.name as name", index=graded_person_index).single()
+            graded_name = res["name"] if res else None
+        
+        if not graded_name:
+            retriever.close()
+            return json.dumps({"eligible": False, "is_outlier": False, "reason": "Could not find graded person."}, ensure_ascii=False)
 
-        # all grades given to graded_person_index
-        grades = retriever.get_member_grades(index=str(graded_person_index)) or []
+        # Get all grades given TO the graded person (not FROM the grader)
+        grades = retriever.get_member_grades(name=str(graded_name)) or []
 
         # find user's latest answer meta (also tells if followup already done)
         meta = retriever.get_latest_teammate_answer_meta(grading_person_index=str(grader_index), graded_person_index=str(graded_person_index))
@@ -843,6 +1109,16 @@ async def check_teammate_outlier_tool(graded_person_index: str, threshold: float
     tags=set(['set', 'write']),
 )
 async def append_teammate_outlier_followup_tool(graded_person_index: str, followup: str) -> str:
+    """
+    Appends additional explanation to a teammate assessment for outlier cases.
+    
+    Args:
+        graded_person_index (str): Index of the person whose grade is being explained.
+        followup (str): Additional explanation text.
+    
+    Returns:
+        str: JSON with success status.
+    """
     try:
         request = get_http_request()
         grader_index = request.headers.get("user_id")
@@ -874,6 +1150,11 @@ async def append_teammate_outlier_followup_tool(graded_person_index: str, follow
 async def get_unevaluated_assumptions_tool() -> str:
     """
     Returns list of assumptions the current user hasn't evaluated yet.
+    
+    Uses user_id from request headers to identify the student.
+    
+    Returns:
+        str: JSON array of unevaluated assumptions.
     """
     try:
         request = get_http_request()
@@ -898,6 +1179,12 @@ async def get_unevaluated_assumptions_tool() -> str:
 async def get_project_assumptions_tool(project_id: str) -> str:
     """
     Returns all assumptions for a specific project.
+    
+    Args:
+        project_id (str): The project ID to fetch assumptions for.
+    
+    Returns:
+        str: JSON array of assumptions with id, description, and system_accepted status.
     """
     try:
         retriever = Neo4jRetriever()
@@ -914,14 +1201,17 @@ async def get_project_assumptions_tool(project_id: str) -> str:
     description="Zapisuje ocenę założenia projektowego przez studenta (fulfilled: true/false + explanation).",
     tags=set(['set', 'write', 'assumptions']),
 )
-async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, explanation: str) -> str:
+async def set_assumption_evaluation_tool(assumption_index: str, fulfilled: bool, explanation: str) -> str:
     """
-    Save a student's evaluation of a project assumption.
-
+    Saves a student's evaluation of a project assumption.
+    
     Args:
-        assumption_id: ID of the assumption being evaluated
-        fulfilled: True if assumption was fulfilled, False otherwise
-        explanation: Explanation for the evaluation
+        assumption_index (str): Element ID of the assumption being evaluated.
+        fulfilled (bool): True if student believes assumption was fulfilled.
+        explanation (str): Student's justification for their evaluation.
+    
+    Returns:
+        str: JSON with saved evaluation details or error.
     """
     try:
         request = get_http_request()
@@ -932,7 +1222,7 @@ async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, ex
         retriever = Neo4jRetriever()
         result = retriever.set_assumption_evaluation(
             student_index=str(user_index),
-            assumption_id=assumption_id,
+            assumption_index=assumption_index,
             fulfilled=fulfilled,
             explanation=explanation
         )
@@ -943,6 +1233,7 @@ async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, ex
                 "success": True,
                 "student_index": result["student_index"],
                 "assumption_id": result["assumption_id"],
+                "assumption_description": result["assumption_description"],
                 "fulfilled": result["fulfilled"],
                 "explanation": result["explanation"]
             }, ensure_ascii=False)
@@ -957,13 +1248,19 @@ async def set_assumption_evaluation_tool(assumption_id: str, fulfilled: bool, ex
     description="Pobiera wszystkie oceny dla danego założenia projektowego.",
     tags=set(['retrieval', 'assumptions']),
 )
-async def get_assumption_evaluations_tool(assumption_id: str) -> str:
+async def get_assumption_evaluations_tool(assumption_description: str) -> str:
     """
     Returns all evaluations for a specific assumption.
+    
+    Args:
+        assumption_description (str): The description text of the assumption.
+    
+    Returns:
+        str: JSON array of evaluations with student info and explanations.
     """
     try:
         retriever = Neo4jRetriever()
-        evaluations = retriever.get_assumption_evaluations(assumption_id=assumption_id)
+        evaluations = retriever.get_assumption_evaluations(assumption_description=assumption_description)
         retriever.close()
 
         return json.dumps(evaluations, ensure_ascii=False)
@@ -978,7 +1275,12 @@ async def get_assumption_evaluations_tool(assumption_id: str) -> str:
 )
 async def get_random_unevaluated_assumption_tool() -> str:
     """
-    Returns the first unevaluated assumption for the current user, or null if all evaluated.
+    Returns the first unevaluated assumption for the current user.
+    
+    Uses user_id from request headers to identify the student.
+    
+    Returns:
+        str: JSON with assumption details or null if all evaluated.
     """
     try:
         request = get_http_request()
@@ -1005,14 +1307,16 @@ async def get_random_unevaluated_assumption_tool() -> str:
 )
 async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -> str:
     """
-    Checks if the current user's assumption evaluations differ from the ACTUAL fulfillment 
-    status in the database (ground truth).
+    Checks if user's assumption evaluations differ from ground truth.
     
-    This tool compares user's answers against the real project assumption statuses,
-    NOT against peer consensus.
-
+    Compares the user's answers against the actual fulfillment status
+    stored in the database, not against peer consensus.
+    
     Args:
-        min_evaluations: Minimum number of assumptions user needs to have evaluated
+        min_evaluations (int): Minimum evaluations required. Defaults to 1.
+    
+    Returns:
+        str: JSON with analysis {eligible, is_outlier, mismatches, followup_question}.
     """
     try:
         request = get_http_request()
@@ -1021,6 +1325,7 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
             return json.dumps({"error": "'user_id' header not found"}, ensure_ascii=False)
 
         retriever = Neo4jRetriever()
+        
         
         # Get user's project ID
         project_id = retriever.get_student_project_id(str(user_index))
@@ -1054,13 +1359,13 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
                 # Skip if followup was already done for this mismatch
                 if eval_result.get("followup_done"):
                     continue
-                    
+
                 user_evals.append({
                     "assumption_id": assumption["assumption_id"],
-                    "assumption_name": assumption["name"],
+                    "assumption_description": assumption["description"],
                     "user_fulfilled": eval_result["fulfilled"],
-                    "actual_fulfilled": assumption["fulfilled"],
-                    "matches_reality": eval_result["fulfilled"] == assumption["fulfilled"]
+                    "actual_fulfilled": assumption["system_accepted"],
+                    "matches_reality": eval_result["fulfilled"] == assumption["system_accepted"]
                 })
 
         retriever.close()
@@ -1086,7 +1391,7 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
                 user_answer = "zrealizowane" if m["user_fulfilled"] else "niezrealizowane"
                 actual_answer = "zostało zrealizowane" if m["actual_fulfilled"] else "nie zostało zrealizowane"
                 mismatch_details.append(
-                    f"• **{m['assumption_name']}** – oceniłeś/aś jako {user_answer}, ale wg dokumentacji {actual_answer}"
+                    f"• **{m['assumption_description']}** – oceniłeś/aś jako {user_answer}, ale wg dokumentacji {actual_answer}"
                 )
             
             mismatch_text = "\n".join(mismatch_details)
@@ -1110,9 +1415,9 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
             "is_outlier": is_outlier,
             "project_id": project_id,
             "total_assumptions": actual_status["total"],
-            "actual_fulfilled_count": actual_status["fulfilled_count"],
-            "actual_unfulfilled_count": actual_status["unfulfilled_count"],
-            "all_actually_fulfilled": actual_status["all_fulfilled"],
+            "actual_fulfilled_count": actual_status["accepted_count"],
+            "actual_unfulfilled_count": actual_status["rejected_count"],
+            "all_actually_fulfilled": actual_status["all_accepted"],
             "user_evaluations": user_evals,
             "mismatches": mismatches,
             "mismatch_count": len(mismatches),
@@ -1130,7 +1435,17 @@ async def check_assumption_evaluation_consensus_tool(min_evaluations: int = 1) -
 )
 async def append_assumption_evaluation_followup_tool(assumption_id: str, followup: str) -> str:
     """
-    Appends additional explanation to an assumption evaluation (for outlier cases).
+    Appends additional explanation to an assumption evaluation.
+    
+    Used when a discrepancy is detected between student's evaluation
+    and the ground truth, requiring additional justification.
+    
+    Args:
+        assumption_id (str): Element ID of the assumption.
+        followup (str): Additional explanation text.
+    
+    Returns:
+        str: JSON with success status.
     """
     try:
         request = get_http_request()

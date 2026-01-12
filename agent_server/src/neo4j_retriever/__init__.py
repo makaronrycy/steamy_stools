@@ -1,3 +1,16 @@
+"""
+Neo4j Retriever - Database Access Layer for Student Grading System.
+
+This module provides the Neo4jRetriever class for all database operations
+including reading and writing student assessments, session management,
+and completion tracking.
+
+Environment Variables:
+    NEO4J_URI: Neo4j database connection URI
+    NEO4J_USERNAME: Database username
+    NEO4J_PASSWORD: Database password
+"""
+
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
 import os
@@ -8,8 +21,35 @@ from pathlib import Path
 print(Path(__file__).parent.parent.parent / '.env')
 load_dotenv(Path(__file__).parent.parent.parent/ '.env') #path set for .env in the root directory
 
+
 class Neo4jRetriever:
+    """
+    Database access layer for the student grading interview system.
+    
+    Provides methods for:
+    - Reading/writing student assessments (self, teammate, leader, project)
+    - Session and conversation history management
+    - Completion status tracking
+    - Assumption evaluation management
+    
+    Attributes:
+        driver: Neo4j driver instance for database connections.
+    
+    Example:
+        >>> retriever = Neo4jRetriever()
+        >>> info = retriever.get_user_info(name="Jan")
+        >>> retriever.close()
+    """
+    
     def __init__(self, uri=None, username=None, password=None):
+        """
+        Initializes the Neo4j database connection.
+        
+        Args:
+            uri (str | None): Neo4j connection URI. Defaults to NEO4J_URI env var.
+            username (str | None): Database username. Defaults to NEO4J_USERNAME env var.
+            password (str | None): Database password. Defaults to NEO4J_PASSWORD env var.
+        """
         self.driver = GraphDatabase.driver(
             uri or os.getenv("NEO4J_URI"),
             auth=(username or os.getenv("NEO4J_USERNAME"), 
@@ -20,7 +60,59 @@ class Neo4jRetriever:
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #----------------GET METHODS---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    def get_completion_status(self):
+        """
+        Get completion status of all students
+        
+        Returns:
+            dict: Completion status
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (all_students:Student)
+                WITH COUNT(all_students) as total_students
+                OPTIONAL MATCH (completed_student:Student)-[:HAS_SESSION]->(cs:ConversationSession)
+                WHERE cs.current_state IN ["completed", "done"] OR cs.completed = true
+                WITH total_students, COUNT(DISTINCT completed_student) as completed_students
+                RETURN completed_students, 
+                total_students,
+                total_students - completed_students as remaining_students,
+                ROUND(100.0 * completed_students / total_students, 2) as completion_percentage"""
+            ).single()
+            return {
+                "completed_students": result["completed_students"],
+                "total_students": result["total_students"],
+                "remaining_students": result["remaining_students"],
+                "completion_percentage": result["completion_percentage"]
+            }
+                
+    def is_member_of_project(self, student_index: str, project_id: str) -> bool:
+        """
+        Check if a student is a member of a given project
+        
+        Args:
+            student_index: Student index
+            project_id: Project ID
+        Returns:
+            bool: True if student is a member of the project
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project {id: $project_id})
+                RETURN COUNT(project) > 0 as is_member
+            """, student_index=student_index, project_id=project_id)
+            
+            record = result.single()
+            return record["is_member"] if record else False
+
     def list_people(self):
+        """
+        Lists all students grouped by their projects.
+        
+        Returns:
+            list[dict]: List of projects with members:
+                [{project_id, project_name, people: [{name, surname, index}]}]
+        """
         response = []
         with self.driver.session() as session:
             projects = session.run("Match (p:Project) RETURN p.id as id, p.name as name ORDER BY p.id").data()
@@ -73,6 +165,14 @@ class Neo4jRetriever:
             return record["index"] if record else None
 
     def get_node_types(self):
+        """
+        Returns the database schema with node types.
+        
+        Note: Currently returns empty list as schema introspection is not implemented.
+        
+        Returns:
+            dict: {"node_types": []}
+        """
         return {"node_types": []}
     
     def get_latest_teammate_answer_meta(self, grading_person_index: str, graded_person_index: str) -> dict | None:
@@ -101,7 +201,18 @@ class Neo4jRetriever:
 
     def append_teammate_outlier_followup(self, grading_person_index: str, graded_person_index: str, followup: str) -> bool:
         """
-        Appends outlier follow-up to the latest teammate_assessment answer and marks followup done.
+        Appends outlier follow-up explanation to a teammate assessment.
+        
+        Used when a user's grade significantly differs from peer consensus
+        and they provide additional justification.
+        
+        Args:
+            grading_person_index (str): Index of the person who gave the grade.
+            graded_person_index (str): Index of the person being graded.
+            followup (str): Additional explanation text.
+        
+        Returns:
+            bool: True if followup was successfully appended.
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -120,12 +231,26 @@ class Neo4jRetriever:
 
     
     def get_students(self):
+        """
+        Retrieves all students from the database.
+        
+        Returns:
+            list[dict]: List of students with {name, surname, index}.
+        """
         with self.driver.session() as session:
             result = session.run("MATCH (s:Student) RETURN s.name AS name, s.surname AS surname, s.index AS index")
             return [{"name": record["name"], "surname": record["surname"], "index": record["index"]} for record in result]
     
     def get_student_project(self, index: str):
-        """Get the project that student belongs to"""
+        """
+        Gets the project a student belongs to.
+        
+        Args:
+            index (str): Student index.
+        
+        Returns:
+            dict | None: {project_id, project_name} or None if not found.
+        """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
@@ -137,9 +262,18 @@ class Neo4jRetriever:
             return None
 
     def get_leader_of_student(self, index: str):
+        """
+        Gets the leader of the project the student belongs to.
+        
+        Args:
+            index (str): Student index.
+        
+        Returns:
+            dict | None: Leader info {name, surname, index, project_id} or None.
+        """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
                 MATCH (leader:Student)-[r:belongs_to]->(project)
                 WHERE r.role = "leader"
                 RETURN leader.name AS name, leader.surname AS surname, leader.index AS index, project.id AS project_id
@@ -185,7 +319,7 @@ class Neo4jRetriever:
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (graded:Student {index: $index})
+                MATCH (graded:Student {name: $name})
                 OPTIONAL MATCH (graded)-[:belongs_to]->(p:Project)
 
                 OPTIONAL MATCH (grader:Student)-[:answered]->(answer:Answer)-[:refers_to]->(graded)
@@ -199,7 +333,7 @@ class Neo4jRetriever:
                     grader.index as grader_index,
                     CASE WHEN lr IS NOT NULL THEN true ELSE false END as is_leader
                 ORDER BY grader.index
-            """, index=index)
+            """, name=name)
 
             return [
                 {
@@ -340,12 +474,20 @@ class Neo4jRetriever:
         
     def get_random_ungraded_member(self, index: str):
         """
-        Deterministic: returns the next ungraded teammate ordered by teammate.index
-        (we keep the name for compatibility with existing tools/prompts).
+        Returns the next ungraded teammate deterministically by index order.
+        
+        Despite the name, this method returns teammates in a consistent order
+        for reproducibility.
+        
+        Args:
+            index (str): Grader's student index.
+        
+        Returns:
+            dict | None: Next ungraded teammate {index, name, surname} or None.
         """
         with self.driver.session() as session:
             result = session.run("""
-                MATCH (grader:Student {name: $name})-[:belongs_to]->(project:Project)
+                MATCH (grader:Student {index: $index})-[:belongs_to]->(project:Project)
                 MATCH (teammate:Student)-[:belongs_to]->(project)
                 WHERE teammate.index <> $index
                 AND NOT EXISTS {
@@ -362,7 +504,7 @@ class Neo4jRetriever:
                 return None
             return {"index": record["index"], "name": record["name"], "surname": record["surname"]}
 
-    def has_graded_all_projects(self, index: str):
+    def has_graded_all_projects(self, name: str):
         """
         Check if user has graded all projects
         
@@ -526,6 +668,8 @@ class Neo4jRetriever:
                     WHERE answer.question_type = "teammate_assessment"
                     RETURN answer.grade as grade,
                            answer.explanation as explanation
+                    ORDER BY id(answer) DESC
+                    LIMIT 1
                 """, grader_name=name, teammate_index=teammate_idx).single()
                 
                 if teammate_answer:
@@ -705,31 +849,30 @@ class Neo4jRetriever:
                 MATCH (student:Student {name: $name})-[:belongs_to]->(project:Project)
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
                 OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
-                RETURN assumption.id as assumption_id,
-                       assumption.name as name,
-                       eval.fulfilled as fulfilled,
+                RETURN elementId(assumption) as assumption_id,
+                       assumption.description as description,
                        eval.explanation as explanation
-                ORDER BY assumption.id
+                ORDER BY elementId(assumption)
             """, name=name)
 
             all_assumptions = []
             incomplete_assumptions = []
             completed_assumptions = 0
-            
+
             for record in assumptions_result:
                 assumption_info = {
                     "assumption_id": record["assumption_id"],
-                    "name": record["name"],
-                    "has_evaluation": record["fulfilled"] is not None,
+                    "description": record["description"],
+                    "has_evaluation": record["explanation"] is not None,
                     "has_explanation": record["explanation"] is not None and str(record["explanation"]).strip() != ""
                 }
                 all_assumptions.append(assumption_info)
-                
+
                 if assumption_info["has_evaluation"] and assumption_info["has_explanation"]:
                     completed_assumptions += 1
                 else:
                     incomplete_assumptions.append(assumption_info)
-            
+
             total_assumptions = len(all_assumptions)
             result["assumption_evaluations"] = {
                 "total_required": total_assumptions,
@@ -745,9 +888,13 @@ class Neo4jRetriever:
                 MATCH (project)-[:has_assumption]->(assumption:Assumption)
                 WHERE assumption.system_accepted = false
                 OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
-                RETURN assumption.description as assumption_description,
+                RETURN elementId(assumption) as assumption_id,
+                       assumption.description as description,
+                       assumption.system_accepted as system_accepted,
+                       project.id as project_id,
+                       project.name as project_name,
                        eval.explanation as explanation
-                ORDER BY assumption.description
+                ORDER BY elementId(assumption)
             """, name=name)
             
             all_rejected_assumptions = []
@@ -755,22 +902,30 @@ class Neo4jRetriever:
             completed_assumptions = 0
             
             for record in assumptions_result:
-                assumption_desc = record["assumption_description"]
+                assumption_id = record["assumption_id"]
+                description = record["description"]
+                system_accepted = record["system_accepted"]
+                project_id = record["project_id"]
+                project_name = record["project_name"]
                 explanation = record["explanation"]
+                has_evaluation = explanation is not None
                 has_explanation = explanation is not None and str(explanation).strip() != ""
                 
-                all_rejected_assumptions.append({
-                    "assumption_description": assumption_desc,
+                assumption_info = {
+                    "assumption_id": assumption_id,
+                    "description": description,
+                    "system_accepted": system_accepted,
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "has_evaluation": has_evaluation,
                     "has_explanation": has_explanation
-                })
+                }
+                all_rejected_assumptions.append(assumption_info)
                 
-                if has_explanation:
+                if has_evaluation and has_explanation:
                     completed_assumptions += 1
                 else:
-                    incomplete_assumptions.append({
-                        "assumption_description": assumption_desc,
-                        "has_explanation": has_explanation
-                    })
+                    incomplete_assumptions.append(assumption_info)
             
             total_rejected = len(all_rejected_assumptions)
             
@@ -796,14 +951,17 @@ class Neo4jRetriever:
 
     def identify_teammate_by_name(self, grader_name: str, name: str,surname: str|None):
         """
-        Identify teammates by name from the same project
+        Identifies teammates by name from the same project.
+        
+        Case-insensitive search for teammates with matching name/surname.
         
         Args:
-            grader_name: Name of the student searching
-            name: Name to search for
-            
+            grader_name (str): Name of the searching student.
+            name (str): First name to search for.
+            surname (str | None): Optional surname to filter.
+        
         Returns:
-            List of dicts: [{"name": str, "surname": str, "index": str}]
+            list[dict]: Matching teammates [{name, surname, index}].
         """
         where_statement = "AND toLower(teammate.name) = toLower($name)"
         if surname is not None:
@@ -826,14 +984,16 @@ class Neo4jRetriever:
 
     def identify_teammate_by_surname(self, grader_name: str, surname: str):
         """
-        Identify teammates by surname from the same project
-
+        Identifies teammates by surname from the same project.
+        
+        Case-insensitive search for teammates with matching surname.
+        
         Args:
-            grader_name: Name of the student searching
-            surname: Surname to search for
-
+            grader_name (str): Name of the searching student.
+            surname (str): Surname to search for.
+        
         Returns:
-            List of dicts: [{"name": str, "surname": str, "index": str}]
+            list[dict]: Matching teammates [{name, surname, index}].
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -857,27 +1017,60 @@ class Neo4jRetriever:
 
     def get_or_create_session(self, student_index: str):
         """
-        Get active conversation session for a student, or create new one if none exists
-
+        Gets active session for a student, or creates a new one if none exists.
+        
         Args:
-            student_index: Student index
-
+            student_index (str): Student index.
+        
         Returns:
-            dict: {
-                "session_id": str,
-                "student_index": str,
-                "current_state": str,
-                "started_at": datetime,
-                "last_updated": datetime,
-                "is_active": bool
-            }
+            dict: Session info with session_id, student_index, current_state,
+                last_state, pending_target_json, pending_substate_json, timestamps.
         """
         session = self.get_active_session(student_index)
         if session:
             return session
         return self.create_conversation_session(student_index)
+    def get_unevaluated_assumptions(self, student_index: str):
+        """
+        Gets assumptions the student hasn't evaluated yet from their project.
+        
+        Args:
+            student_index (str): Student index.
+        
+        Returns:
+            list[dict]: Unevaluated assumptions with assumption_id, description,
+                system_accepted, project_id, and project_name.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
+                MATCH (project)-[:has_assumption]->(assumption:Assumption)
+                OPTIONAL MATCH (student)-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption)
+                WITH student, project, assumption, eval
+                WHERE eval IS NULL
+                RETURN elementId(assumption) as assumption_id,
+                       assumption.description as description,
+                       assumption.system_accepted as system_accepted,
+                       project.id as project_id,
+                       project.name as project_name
+                ORDER BY elementId(assumption)
+            """, student_index=student_index)
 
+            return [{"assumption_id": record["assumption_id"],
+                    "description": record["description"],
+                    "system_accepted": record["system_accepted"],
+                    "project_id": record["project_id"],
+                    "project_name": record["project_name"]} for record in result]
     def create_conversation_session(self, student_index: str):
+        """
+        Creates a new conversation session for a student.
+        
+        Args:
+            student_index (str): Index of the student.
+        
+        Returns:
+            dict: Session info with session_id, current_state, timestamps, etc.
+        """
         import uuid
         with self.driver.session() as session:
             session_id = str(uuid.uuid4())
@@ -927,6 +1120,15 @@ class Neo4jRetriever:
 
 
     def get_active_session(self, student_index: str):
+        """
+        Retrieves the active conversation session for a student.
+        
+        Args:
+            student_index (str): Index of the student.
+        
+        Returns:
+            dict | None: Active session info or None if no active session.
+        """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:HAS_SESSION]->(cs:ConversationSession)
@@ -971,8 +1173,19 @@ class Neo4jRetriever:
         pending_substate_json: str | None = None,
     ):
         """
-        Atomically: last_state <- current_state, current_state <- new_state,
-        pending_target_json <- pending_target_json, pending_substate_json <- pending_substate_json
+        Updates session state atomically.
+        
+        Sets last_state <- current_state, current_state <- new_state,
+        and updates pending target/substate JSON.
+        
+        Args:
+            session_id (str): Session ID to update.
+            new_state (str): New state to set.
+            pending_target_json (str | None): JSON string for pending target.
+            pending_substate_json (str | None): JSON string for pending substate.
+        
+        Returns:
+            bool: True if update succeeded.
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -995,16 +1208,16 @@ class Neo4jRetriever:
 
     def save_conversation_message(self, session_id: str, role: str, content: str, state_at_time: str):
         """
-        Save a conversation message to the session
-
+        Saves a conversation message to the session history.
+        
         Args:
-            session_id: Session ID
-            role: Message role ("user" or "assistant")
-            content: Message content
-            state_at_time: State when message was sent
-
+            session_id (str): Session ID.
+            role (str): Message role ("user" or "assistant").
+            content (str): Message content.
+            state_at_time (str): State when message was sent.
+        
         Returns:
-            dict: Saved message information
+            dict | None: Saved message info with id, role, content, timestamp.
         """
         import uuid
 
@@ -1047,14 +1260,14 @@ class Neo4jRetriever:
 
     def get_conversation_history(self, session_id: str, limit = 5):
         """
-        Get conversation history for a session
-
+        Gets conversation history for a session.
+        
         Args:
-            session_id: Session ID
-            limit: Optional limit on number of messages to return (most recent)
-
+            session_id (str): Session ID.
+            limit (int): Max messages to return (most recent). Defaults to 5.
+        
         Returns:
-            list: List of messages in chronological order
+            list[dict]: Messages in chronological order with role, content, state.
         """
         with self.driver.session() as session:
             query = """
@@ -1081,13 +1294,13 @@ class Neo4jRetriever:
 
     def mark_session_complete(self, session_id: str):
         """
-        Mark conversation session as completed
-
+        Marks a conversation session as completed and inactive.
+        
         Args:
-            session_id: Session ID
-
+            session_id (str): Session ID to mark complete.
+        
         Returns:
-            bool: True if update successful
+            bool: True if update was successful.
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -1102,17 +1315,27 @@ class Neo4jRetriever:
 
     def get_next_required_state(self, name: str):
         """
-        Determine the next required state based on completion status
-
+        Determines the next required workflow state based on completion status.
+        
+        Evaluates all assessment types in priority order and returns the
+        first incomplete state that needs attention.
+        
+        Priority order:
+            1. self_evaluation
+            2. evaluate_teammate_grade
+            3. evaluate_project_grade
+            4. evaluate_leader_grade
+            5. evaluate_objectives
+            6. evaluate_assumption
+            7. masters_intent
+            8. study_program_feedback
+            9. done (all complete)
+        
         Args:
-            name: Student name
-
+            name (str): Student name.
+        
         Returns:
-            dict: {
-                "state": str (state name),
-                "reason": str (why this state is next),
-                "details": dict (additional context)
-            }
+            dict: {next_state, reason, details} with context about what's needed.
         """
         status = self.get_student_completion_status(name)
 
@@ -1195,6 +1418,21 @@ class Neo4jRetriever:
                     "next_assumption": incomplete[0] if incomplete else None
                 }
             }
+         # Priority 7: Masters intent (open answer)
+        if not status.get("masters_intent", {}).get("is_complete", False):
+            return {
+                "next_state": "masters_intent",
+                "reason": "masters_intent_incomplete",
+                "details": {}
+            }
+
+        # Priority 8: Study program feedback (open answer)
+        if not status.get("study_program_feedback", {}).get("is_complete", False):
+            return {
+                "next_state": "study_program_feedback",
+                "reason": "study_program_feedback_incomplete",
+                "details": {}
+            }
 
         # All complete
         return {
@@ -1204,8 +1442,98 @@ class Neo4jRetriever:
                 "completion_summary": status
             }
         }
+    def get_student_project_id(self, index: str):
+        """
+        Gets the project ID that a student belongs to.
+        
+        Args:
+            index (str): Student index.
+        
+        Returns:
+            str | None: Project ID or None if not found.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $index})-[:belongs_to]->(project:Project)
+                RETURN project.id as project_id
+            """, index=index)
+
+            record = result.single()
+            if record:
+                return record["project_id"]
+            return None
+    # REMOVED: This is a duplicate method, already defined above at line 878
+
+    def has_evaluated_all_assumptions(self, student_index: str) -> bool:
+        """
+        Checks if student has evaluated all assumptions from their project.
+        
+        Args:
+            student_index (str): Student index.
+        
+        Returns:
+            bool: True if all assumptions are evaluated.
+        """
+        unevaluated = self.get_unevaluated_assumptions(student_index)
+        return len(unevaluated) == 0
+
+    def get_student_assumption_evaluation(self, student_index: str, assumption_id: str) -> dict | None:
+        """
+        Gets a student's evaluation of a specific assumption.
+        
+        Args:
+            student_index (str): Student index.
+            assumption_id (str): Element ID of the assumption.
+        
+        Returns:
+            dict | None: {fulfilled, explanation, followup_done} or None.
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (student:Student {index: $student_index})-[:evaluated]->(eval:AssumptionEvaluation)-[:refers_to]->(assumption:Assumption)
+                WHERE elementId(assumption) = $assumption_id
+                RETURN eval.fulfilled as fulfilled,
+                       eval.explanation as explanation,
+                       coalesce(eval.followup_done, false) as followup_done
+            """, student_index=student_index, assumption_id=assumption_id)
+            rec = result.single()
+            if not rec:
+                return None
+            return {
+                "fulfilled": rec["fulfilled"],
+                "explanation": rec["explanation"],
+                "followup_done": rec["followup_done"]
+            }
+
+    def get_project_assumptions_status(self, project_id: str) -> dict:
+        """
+        Gets summary of project assumptions fulfillment status (ground truth).
+        
+        Args:
+            project_id (str): Project ID.
+        
+        Returns:
+            dict: {total, accepted_count, rejected_count, all_accepted, assumptions}.
+        """
+        assumptions = self.get_project_assumptions(project_id)
+
+        accepted_count = sum(1 for a in assumptions if a.get("system_accepted") is True)
+        rejected_count = len(assumptions) - accepted_count
+
+        return {
+            "total": len(assumptions),
+            "accepted_count": accepted_count,
+            "rejected_count": rejected_count,
+            "all_accepted": rejected_count == 0 and len(assumptions) > 0,
+            "assumptions": assumptions
+        }
 
     def close(self):
+        """
+        Closes the Neo4j driver connection.
+        
+        Should be called when done with database operations.
+        """
         self.driver.close()
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1277,6 +1605,45 @@ class Neo4jRetriever:
                     oceniany.name as graded_name,
                     oceniany.surname as graded_surname,
                     o.grade, 
+                    o.explanation
+            """,
+                grading_person_index=grading_person_index,
+                graded_person_index=graded_person_index,
+                grade=grade,
+                description=description
+            )
+            return result.single()
+
+    def set_github_grade(
+        self,
+        grading_person_index: str,
+        graded_person_index: str,
+        grade: float,
+        description: str,
+    ):
+        """
+        Save GitHub activity assessment
+
+        Args:
+            grading_person_index: Index number of the person grading
+            graded_person_index: Index number of the person being graded
+            grade: GitHub activity grade (e.g. 2.0-5.0)
+            description: Justification for the grade
+        """
+        with self.driver.session() as session:
+            result = session.run("""
+                MATCH (autor:Student {index: $grading_person_index}),
+                    (oceniany:Student {index: $graded_person_index})
+                CREATE (autor)-[:answered]->(o:Answer {
+                    question_type: "github_assessment",
+                    grade: $grade,
+                    explanation: $description
+                })-[:refers_to]->(oceniany)
+                RETURN autor.name as grader_name,
+                    autor.surname as grader_surname,
+                    oceniany.name as graded_name,
+                    oceniany.surname as graded_surname,
+                    o.grade,
                     o.explanation
             """,
                 grading_person_index=grading_person_index,
@@ -1412,7 +1779,19 @@ class Neo4jRetriever:
             return result.single()
 
     def set_open_answer(self, student_index: str, question_type: str, answer: str):
-        """Save a free-form interview answer linked to the student. Uses MERGE to prevent duplicates."""
+        """
+        Saves a free-form interview answer linked to the student.
+        
+        Uses MERGE to prevent duplicates - updates existing answer if present.
+        
+        Args:
+            student_index (str): Student index.
+            question_type (str): Type of question (e.g., 'masters_intent', 'study_program_feedback').
+            answer (str): The answer text.
+        
+        Returns:
+            Record with question_type and explanation, or None.
+        """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})
@@ -1435,17 +1814,15 @@ class Neo4jRetriever:
         system_accepted: bool
     ):
         """
-        Create a project assumption with its actual fulfillment status (ground truth)
-
+        Creates a project assumption with its ground truth fulfillment status.
+        
         Args:
-            project_id: Project ID
-            assumption_id: Unique ID for the assumption
-            name: Short name of the assumption
-            description: Detailed description of the assumption
-            fulfilled: True if assumption was actually fulfilled, False otherwise (ground truth)
-
+            project_id: Project ID.
+            description (str): Detailed description of the assumption.
+            system_accepted (bool): True if system verified assumption as fulfilled.
+        
         Returns:
-            Created assumption information
+            Created assumption record with description, status, and project info.
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -1469,50 +1846,58 @@ class Neo4jRetriever:
         self,
         student_index: str,
         assumption_description: str,
+        fulfilled: bool,
         explanation: str
     ):
         """
-        Student evaluates an assumption that was NOT accepted by the automated system.
-        Students only evaluate assumptions where system_accepted = false.
+        Saves a student's evaluation of a project assumption.
+        
+        Students evaluate assumptions where system_accepted = false to provide
+        their perspective on whether the assumption was actually fulfilled.
         
         Args:
-            student_index: Index of the student evaluating
-            assumption_description: Description text of the assumption being evaluated
-            explanation: Student's explanation/opinion about why the assumption was/wasn't fulfilled
-            
+            student_index (str): Student index.
+            assumption_index (str): Element ID of the assumption.
+            fulfilled (bool): Student's opinion on fulfillment.
+            explanation (str): Justification for the evaluation.
+        
         Returns:
-            Evaluation information
+            Evaluation record with student and assumption details.
         """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (student:Student {index: $student_index})-[:belongs_to]->(project:Project)
-                MATCH (project)-[:has_assumption]->(assumption:Assumption {description: $assumption_description})
-                WHERE assumption.system_accepted = false
+                MATCH (project)-[:has_assumption]->(assumption:Assumption)
+                WHERE assumption.description = $assumption_description
                 CREATE (student)-[:evaluated]->(eval:AssumptionEvaluation {
+                    fulfilled: $fulfilled,
                     explanation: $explanation
                 })-[:refers_to]->(assumption)
                 RETURN student.name as student_name,
                        student.surname as student_surname,
                        student.index as student_index,
+                       elementId(assumption) as assumption_id,
                        assumption.description as assumption_description,
                        assumption.system_accepted as system_accepted,
+                       eval.fulfilled as fulfilled,
                        eval.explanation as explanation
             """,
                 student_index=student_index,
                 assumption_description=assumption_description,
+                fulfilled=fulfilled,
                 explanation=explanation
             )
             return result.single()
 
     def get_assumption_evaluations(self, assumption_description: str):
         """
-        Get all evaluations for a specific assumption
+        Gets all student evaluations for a specific assumption.
         
         Args:
-            assumption_description: Description text of the assumption
-            
+            assumption_description (str): Description text of the assumption.
+        
         Returns:
-            List of evaluations with student information
+            list[dict]: Evaluations with student_index, name, surname, and explanation.
         """
         with self.driver.session() as session:
             result = session.run("""
@@ -1532,39 +1917,39 @@ class Neo4jRetriever:
 
     def get_project_assumptions(self, project_id: str):
         """
-        Get all assumptions for a specific project
+        Gets all assumptions for a specific project.
         
         Args:
-            project_id: Project ID
-            
+            project_id (str): Project ID.
+        
         Returns:
-            List of assumptions with description and system_accepted status
+            list[dict]: Assumptions with assumption_id, description, and system_accepted.
         """
         with self.driver.session() as session:
             result = session.run("""
                 MATCH (project:Project {id: $project_id})-[:has_assumption]->(assumption:Assumption)
-                RETURN assumption.description as description,
+                RETURN elementId(assumption) as assumption_id,
+                       assumption.description as description,
                        assumption.system_accepted as system_accepted
                 ORDER BY assumption.description
             """, project_id=project_id)
-            
-            return [{"description": record["description"],
+
+            return [{"assumption_id": record["assumption_id"],
+                    "description": record["description"],
                     "system_accepted": record["system_accepted"]} for record in result]
 
     def load_assumptions_from_json(self, json_path: str):
         """
-        Load assumptions from JSON file for ALL projects based on project name mapping.
-        Each assumption has description, system_accepted status, and projekt field.
+        Loads assumptions from a JSON file for all projects.
+        
+        Maps assumptions to projects based on the "projekt" field in JSON.
         
         Args:
-            json_path: Path to JSON file with format:
-                [
-                    {"projekt": "project_name", "opis": "description text", "spelnione": true/false},
-                    ...
-                ]
-                
+            json_path (str): Path to JSON file with format:
+                [{"projekt": "name", "opis": "description", "spelnione": bool}]
+        
         Returns:
-            dict: Summary of loaded assumptions per project
+            dict: Summary of loaded assumptions per project.
         """
         import json
         
@@ -1638,16 +2023,18 @@ class Neo4jRetriever:
         output_csv_path: str
     ):
         """
-        Generate a combined CSV file with grades and assumption definitions for ALL projects.
-        Takes existing grades.csv and adds assumption_definition rows from JSON based on project name mapping.
+        Generates a combined CSV with grades and assumption definitions.
+        
+        Takes existing grades.csv and adds assumption_definition rows from JSON
+        based on project name mapping.
         
         Args:
-            grades_csv_path: Path to original grades CSV file
-            assumptions_json_path: Path to JSON file with assumptions (must have "projekt" field)
-            output_csv_path: Path for output combined CSV file
-            
+            grades_csv_path (str): Path to original grades CSV.
+            assumptions_json_path (str): Path to JSON with assumptions.
+            output_csv_path (str): Path for output combined CSV.
+        
         Returns:
-            dict: Summary of generated file per project
+            dict: Summary with output_file, counts, and per-project stats.
         """
         import csv
         import json
@@ -1666,15 +2053,25 @@ class Neo4jRetriever:
                 if row.get('type') and not row['type'].strip().startswith('#'):
                     original_rows.append(row)
         
-        # Get project name to ID mapping from data_no_grades.csv
+        # Get project name to ID mapping from data_no_grades CSV
         # We need to read the CSV to know which project_id corresponds to which project_name
         project_name_to_id = {}
-        data_csv_path = grades_csv_path.replace('grades.csv', 'data_no_grades.csv')
+        # Try to find data_no_grades file with same suffix as grades file
+        import re
+        suffix_match = re.search(r'grades(_\w+)?\.csv$', grades_csv_path)
+        suffix = suffix_match.group(1) if suffix_match and suffix_match.group(1) else ''
+        data_csv_path = re.sub(r'grades(_\w+)?\.csv$', f'data_no_grades{suffix}.csv', grades_csv_path)
         try:
             with open(data_csv_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
-                for row in reader:
-                    project_name_to_id[row['project_name']] = row['project_id']
+                if not reader.fieldnames or 'project_name' not in reader.fieldnames:
+                    print(
+                        f"Warning: {data_csv_path} missing 'project_name' column, "
+                        "will use assumptions without project mapping"
+                    )
+                else:
+                    for row in reader:
+                        project_name_to_id[row['project_name']] = row['project_id']
         except FileNotFoundError:
             print(f"Warning: {data_csv_path} not found, will use assumptions without project mapping")
         
@@ -1737,17 +2134,19 @@ class Neo4jRetriever:
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     def fill_database_with_grades(self, csv_path: str):
         """
-        Load all grades and assumption definitions from CSV file and add them to Neo4j database.
-
+        Loads all grades and assumption definitions from a CSV file.
+        
+        Processes assumption_definition rows first, then all grade types.
+        
         Args:
-            csv_path (str): Path to CSV file containing columns:
+            csv_path (str): Path to CSV with columns:
                 type, grader_id, project_id, graded_id, grade, explanation
-                
+        
         Supported types:
-            - self_assessment, teammate_assessment, leadership_assessment, 
-              project_assessment, objectives_assessment
-            - assumption_definition: defines project assumption (graded_id=description, grade=0/1 for system_accepted)
-            - assumption_evaluation: student evaluates assumption (graded_id=description, explanation=student opinion)
+            - self_assessment, teammate_assessment, leadership_assessment,
+              project_assessment, objectives_assessment, github_assessment
+            - assumption_definition: defines project assumption
+            - assumption_evaluation: student evaluates assumption
         """
         import csv
 
@@ -1831,6 +2230,14 @@ class Neo4jRetriever:
                             description=explanation
                         )
 
+                    elif grade_type == "github_assessment" and graded_id:
+                        self.set_github_grade(
+                            grading_person_index=grader_id,
+                            graded_person_index=graded_id,
+                            grade=grade,
+                            description=explanation
+                        )
+
                     elif grade_type == "leadership_assessment":
                         self.set_leader_grade(
                             grading_person_index=grader_id,
@@ -1858,10 +2265,12 @@ class Neo4jRetriever:
                     elif grade_type == "assumption_evaluation":
                         # Student evaluates assumption that was rejected by system
                         # graded_id contains the assumption description
+                        # grade field contains fulfilled status (1=fulfilled, 0=not fulfilled)
                         if graded_id:
                             self.set_assumption_evaluation(
                                 student_index=grader_id,
                                 assumption_description=graded_id,
+                                fulfilled=bool(int(grade)) if grade else False,
                                 explanation=explanation
                             )
 
@@ -1875,19 +2284,14 @@ class Neo4jRetriever:
 
     def fill_database_no_grades(self, csv_path: str, assumptions_json_path: str = None):
         """
-        Fill database with students and projects from CSV file.
-        Optionally load assumptions from JSON file.
+        Fills database with students and projects from CSV.
+        
+        Optionally loads assumptions from a JSON file.
         
         Args:
-            csv_path: Path to CSV file
-            assumptions_json_path: Optional path to JSON file with assumptions.
-                                   If not provided, no assumptions are created.
-        
-        Format CSV:
-            index,name,surname,github,project_id,project_name,role
-            
-        Format JSON (assumptions):
-            [{"opis": "description", "spelnione": true/false}, ...]
+            csv_path (str): Path to CSV with columns:
+                index, name, surname, github, project_id, project_name, role
+            assumptions_json_path (str | None): Optional path to JSON with assumptions.
         """
         import csv
         
@@ -1950,7 +2354,9 @@ class Neo4jRetriever:
 
     def clear_database(self):
         """
-        Clear entire database
+        Clears all nodes and relationships from the database.
+        
+        WARNING: This operation is destructive and cannot be undone.
         """
         with self.driver.session() as session:
             result = session.run("MATCH (n) DETACH DELETE n RETURN count(n) as deleted")
@@ -1998,19 +2404,19 @@ if __name__ == "__main__":
     # Option 1: Fill database without grades (just students, projects, and assumptions from JSON)
     # JSON file maps assumptions to projects using "projekt" field
     retriever.fill_database_no_grades(
-        "src/neo4j_retriever/data_no_grades.csv",
+        "src/neo4j_retriever/data_no_grades_presentation.csv",
         "src/neo4j_retriever/raport_zgodnosci.json"
     )
     
-    # Option 2: Generate combined CSV and fill with grades
+    #Option 2: Generate combined CSV and fill with grades
     # Step 1: Generate grades_with_assumptions.csv from grades.csv + raport_zgodnosci.json
-    # Automatically maps assumptions to projects based on "projekt" field in JSON
-    # Neo4jRetriever.generate_grades_with_assumptions(
-    #     grades_csv_path="src/neo4j_retriever/grades.csv",
-    #     assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
-    #     output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
-    # )
+    # # Automatically maps assumptions to projects based on "projekt" field in JSON
+    Neo4jRetriever.generate_grades_with_assumptions(
+         grades_csv_path="src/neo4j_retriever/grades_presentation.csv",
+         assumptions_json_path="src/neo4j_retriever/raport_zgodnosci.json",
+         output_csv_path="src/neo4j_retriever/grades_with_assumptions.csv"
+    )
     # Step 2: Fill database from combined CSV
-    # retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
+    retriever.fill_database_with_grades("src/neo4j_retriever/grades_with_assumptions.csv")
     
     retriever.close()

@@ -39,6 +39,66 @@ def read_all_files_from_dir(directory):
 
     return "\n\n".join(texts)
 
+def load_assumptions_to_neo4j(assumptions):
+    if not assumptions:
+        print("Brak zalozen do zapisania w Neo4j.")
+        return
+
+    try:
+        from neo4j import GraphDatabase
+    except ImportError:
+        print("Brak biblioteki neo4j. Pomijam zapis zalozen do bazy.")
+        return
+
+    uri = os.getenv("NEO4J_URI")
+    username = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME")
+    password = os.getenv("NEO4J_PASSWORD")
+
+    if not uri or not username or not password:
+        print("Brak konfiguracji Neo4j w zmiennych srodowiskowych.")
+        return
+
+    driver = GraphDatabase.driver(uri, auth=(username, password))
+    created_count = 0
+
+    try:
+        with driver.session() as session:
+            result = session.run("""
+                MATCH (p:Project)
+                RETURN p.id as project_id, p.name as project_name
+            """)
+            project_name_to_id = {
+                record["project_name"]: record["project_id"] for record in result
+            }
+
+            for assumption in assumptions:
+                project_name = assumption.get("projekt", "")
+                description = assumption.get("opis", "")
+                system_accepted = assumption.get("spelnione", False)
+
+                project_id = project_name_to_id.get(project_name)
+                if not project_id:
+                    print(f"Warning: Project '{project_name}' not found in database, skipping assumptions")
+                    continue
+
+                if description:
+                    session.run("""
+                        MATCH (project:Project {id: $project_id})
+                        CREATE (project)-[:has_assumption]->(assumption:Assumption {
+                            description: $description,
+                            system_accepted: $system_accepted
+                        })
+                    """,
+                        project_id=project_id,
+                        description=description,
+                        system_accepted=system_accepted
+                    )
+                    created_count += 1
+    finally:
+        driver.close()
+
+    print(f"Zapisano {created_count} zalozen do Neo4j.")
+
 
 # =====================
 # ETAP 0 – NAZWA PROJEKTU
@@ -150,6 +210,7 @@ def analyze_assumptions():
     """
     processed_count = 0
     errors = []
+    all_assumptions = []
     
     # Absolute path inside docker
     base_dir = os.path.join(os.getcwd(), BASE_PROJECTS_DIR)
@@ -194,6 +255,8 @@ def analyze_assumptions():
 
             with open(os.path.join(project_path, "raport.json"), "w", encoding="utf-8") as f:
                 json.dump(raport, f, indent=2, ensure_ascii=False)
+
+            all_assumptions.extend(raport)
                 
             processed_count += 1
             
@@ -201,6 +264,9 @@ def analyze_assumptions():
             msg = f"Błąd w projekcie {project_name}: {str(e)}"
             print(msg)
             errors.append(msg)
+
+    if all_assumptions:
+        load_assumptions_to_neo4j(all_assumptions)
 
     return {
         "status": "success", 

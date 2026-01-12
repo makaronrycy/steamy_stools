@@ -1,3 +1,25 @@
+"""
+MCP Prompts for the Interview Agent System.
+
+This module defines all prompt templates used by agents during the
+student grading interview process. Each prompt is registered with
+the MCP server and can be fetched by agents.
+
+Prompt Categories:
+    - Initial prompts: Greeting and identity verification
+    - Question prompts: Template for asking evaluation questions
+    - Verification prompts: Validate and save user responses for:
+        - Self evaluation
+        - Teammate evaluation
+        - Leader evaluation
+        - Project evaluation
+        - Objectives evaluation
+        - Assumption evaluation
+        - Masters intent
+        - Study program feedback
+    - Closing prompts: End of interview
+"""
+
 from .. import MCP_SERVER
 
 
@@ -7,6 +29,14 @@ from .. import MCP_SERVER
     tags=set(['example', 'greeting']),
 )
 async def initial_prompt() -> str:
+    """
+    Returns the initial greeting prompt for starting the interview.
+    
+    Used to welcome the user and initiate identity verification.
+    
+    Returns:
+        str: The greeting prompt text.
+    """
     return f"Jesteś agentem, który wita użytkownika i pyta o jego imię. Rozpoczynasz rozmowę, i informujesz użytkownika, że zaczyna wywiad gorących krzeseł."
 
 
@@ -15,7 +45,20 @@ async def initial_prompt() -> str:
     description=" Prompt zadający pytanie użytkownikowi.",
     tags=set(['example', 'question']),
 )
-async def question_prompt(question,target) -> str:
+async def question_prompt(question, target) -> str:
+    """
+    Generates a dynamic question prompt for the interview.
+    
+    Creates instructions for the agent to ask a specific question,
+    optionally referencing a target entity (person, project, etc.).
+    
+    Args:
+        question (str): The question text to ask the user.
+        target (str): Optional target context (name, project, etc.).
+    
+    Returns:
+        str: The formatted question prompt with instructions.
+    """
 
     if target != "":
         target_text = f"Pytanie dotyczy następującego celu/obiektu: {target}. ZAWSZE referuj się do tego celu/obiektu w pytaniu."
@@ -41,6 +84,15 @@ Twoim zadaniem jest zadać pytanie i czekać na odpowiedź użytkownika.
     tags=set(['verification']),
 )
 async def initial_verification_prompt() -> str:
+    """
+    Returns the identity verification prompt.
+    
+    Provides detailed instructions for verifying user identity
+    by comparing their stated name with database records.
+    
+    Returns:
+        str: The identity verification prompt with examples.
+    """
     return f"""
 # Rola i Cel
 Jesteś agentem weryfikującym tożsamość użytkownika przed rozpoczęciem wywiadu gorących krzeseł.
@@ -113,6 +165,15 @@ Użytkownik: "Jestem Elonem Muskiem"
     tags=set(['verification']),
 )
 async def self_evaluation_verification_prompt() -> str:
+    """
+    Returns the self-evaluation verification prompt.
+    
+    Provides instructions for validating and saving the user's
+    self-assessment including grade (2.0-5.0) and justification.
+    
+    Returns:
+        str: The self-evaluation verification prompt.
+    """
     return """
 Jesteś WALIDATOREM odpowiedzi do stanu SELF_EVALUATION.
 
@@ -162,6 +223,16 @@ Kiedy NIE zapisujesz:
     tags=set(['verification']),
 )
 async def teammate_evaluation_verification_prompt() -> str:
+    """
+    Returns the teammate evaluation verification prompt.
+    
+    Provides instructions for validating and saving assessments
+    of team members. Ensures the assessment is for the correct
+    PENDING_TARGET person.
+    
+    Returns:
+        str: The teammate evaluation verification prompt.
+    """
     return """
 Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_TEAMMATE_GRADE.
 
@@ -216,6 +287,16 @@ Odpowiedź JEDNYM pytaniem doprecyzowującym w języku naturalnym, odnosząc si�
     tags=set(['verification']),
 )
 async def leader_evaluation_verification_prompt() -> str:
+    """
+    Returns the leader evaluation verification prompt.
+    
+    Provides instructions for validating and saving assessments
+    of project leaders. Evaluates leadership qualities like
+    planning, task division, communication, and conflict resolution.
+    
+    Returns:
+        str: The leader evaluation verification prompt.
+    """
     return """
 Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_LEADER_GRADE.
 
@@ -259,6 +340,16 @@ Odpowiedź JEDNYM pytaniem w języku naturalnym, odnoszącym się do konwersacji
     tags=set(['verification']),
 )
 async def project_evaluation_verification_prompt() -> str:
+    """
+    Returns the project evaluation verification prompt.
+    
+    Provides instructions for validating and saving project assessments.
+    Uses stricter validation for project members and more liberal
+    validation for external evaluators.
+    
+    Returns:
+        str: The project evaluation verification prompt.
+    """
     return """
 Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_PROJECT_GRADE.
 
@@ -271,10 +362,10 @@ Wejście:
 Cel:
 - Zapisać ocenę projektu tylko jeśli odpowiedź jest kompletna, na temat i spójna.
 
-Zdobądź informacje o użytkowniku wywołując narzędzie `get_user_info_tool`, jeśli jeszcze tego nie zrobiłeś.
+Sprawdź czy użytkownik należy do projektu wywołujać is_member_of_project_tool z PENDING_TARGET.project_id.
+DLA TRUE: Dokładna walidacja.
+DLA FALSE: Liberalna walidacja.
 
-Jeśli użytkownik należy do projektu, to używaj dokładnej walidacji.
-Jeśli nie należy do projektu, bądź bardziej liberalny w ocenie odpowiedzi.
 Dokładna walidacja:
 1) Wydobądź ocenę 2.0–5.0 (akceptuj 5 jako 5.0, przecinek 4,5).
 2) Oceń uzasadnienie semantycznie:
@@ -317,6 +408,16 @@ Odpowiedź JEDNYM pytaniem w języku naturalnym, odnoszącym się do konwersacji
     tags=set(['verification']),
 )
 async def objectives_evaluation_verification_prompt() -> str:
+    """
+    Returns the objectives evaluation verification prompt.
+    
+    Provides instructions for validating assessments of whether
+    project objectives/goals were achieved. Requires specific
+    references to goals, features, or deliverables.
+    
+    Returns:
+        str: The objectives evaluation verification prompt.
+    """
     return """
 Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_OBJECTIVES.
 
@@ -359,11 +460,21 @@ Po zapisie odpowiedz jednym krótkim zdaniem potwierdzającym (bez dodatkowych p
     tags=set(['verification']),
 )
 async def assumption_evaluation_verification_prompt() -> str:
+    """
+    Returns the assumption evaluation verification prompt.
+    
+    Provides instructions for validating assessments of project
+    assumptions. Requires a clear decision (fulfilled: true/false)
+    and justification with concrete examples.
+    
+    Returns:
+        str: The assumption evaluation verification prompt.
+    """
     return """
 Jesteś WALIDATOREM odpowiedzi do stanu EVALUATE_ASSUMPTION.
 
 Wejście:
-- PENDING_TARGET: dict (assumption_id, name, description, project_id, project_name) — oceniane założenie
+- PENDING_TARGET: dict (assumption_id, description, project_id, project_name) — oceniane założenie
 - ODPOWIEDŹ_UŻYTKOWNIKA: tekst
 - HISTORIA: lista wiadomości (jeśli jest, możesz z niej korzystać)
 
@@ -437,6 +548,16 @@ ODPOWIEDŹ JEDNYM pytaniem doprecyzowującym w języku naturalnym, odnosząc si�
     tags=set(['verification']),
 )
 async def masters_intent_verification_prompt() -> str:
+    """
+    Returns the masters intent verification prompt.
+    
+    Provides instructions for validating the user's response about
+    their intention to continue to master's degree. Requires both
+    a decision (yes/no/undecided) and justification.
+    
+    Returns:
+        str: The masters intent verification prompt.
+    """
     return f"""
 # Rola i Cel
 Jesteś agentem weryfikującym odpowiedź na pytanie: "Czy zamierza pan/pani zostać na magisterkę?"
@@ -519,6 +640,16 @@ Użytkownik: "A jakie są studia magisterskie?"
     tags=set(['verification']),
 )
 async def study_program_feedback_verification_prompt() -> str:
+    """
+    Returns the study program feedback verification prompt.
+    
+    Provides instructions for validating feedback about the study
+    program. Accepts both positive and negative feedback but
+    requires concrete opinions with examples.
+    
+    Returns:
+        str: The study program feedback verification prompt.
+    """
     return f"""
 # Rola i Cel
 Jesteś agentem weryfikującym odpowiedź na pytanie: "Jakie uwagi do kierunku studiów?"
@@ -606,6 +737,15 @@ Użytkownik: "A jakie inne kierunki są na wydziale?"
     tags=set(['closing']),
 )
 async def done_prompt() -> str:
+    """
+    Returns the interview closing prompt.
+    
+    Provides instructions for ending the interview with a friendly
+    farewell message. No additional questions should be asked.
+    
+    Returns:
+        str: The closing prompt text.
+    """
     return f"""
 Jesteś agentem kończącym wywiad gorących krzeseł.
 

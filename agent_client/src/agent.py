@@ -17,8 +17,36 @@ logfire.configure(
 logfire.instrument_openai_agents()   # patchuje SDK i wysyła span-y do Langfuse
 
 class AgentWorkflow:
+    """
+    Orchestrates the conversation workflow between user and AI agents.
+    
+    Manages the lifecycle of question and verification agents, handles
+    streaming responses, and integrates with Langfuse for observability.
+    
+    Attributes:
+        user_id (int): The user's identifier.
+        question_target (str): The target context for the question (default: "general").
+        user_anwser (str): The user's response to the previous question.
+        mcp_server (MCPServerStreamableHttp): Connected MCP server for tools.
+        state (State): The current conversation state.
+        last_state (State | None): The previous conversation state.
+        model (str): The LLM model to use (default: "gpt-4o-mini").
+        history (list): Reversed conversation history.
+    """
 
-    def __init__(self,user_id:int, user_anwser,last_state:State|None, state:State,mcp_server: MCPServerStreamableHttp,question_target:str="general",history:list[Dict[str,Any]]=[]):
+    def __init__(self, user_id: int, user_anwser, last_state: State | None, state: State, mcp_server: MCPServerStreamableHttp, question_target: str = "general", history: list[Dict[str, Any]] = []):
+        """
+        Initializes the AgentWorkflow.
+        
+        Args:
+            user_id (int): The user's identifier.
+            user_anwser: The user's response to the previous question.
+            last_state (State | None): The previous conversation state.
+            state (State): The current conversation state.
+            mcp_server (MCPServerStreamableHttp): Connected MCP server instance.
+            question_target (str): Target context for questions. Defaults to "general".
+            history (list[Dict[str, Any]]): Conversation history. Defaults to empty list.
+        """
         self.user_id = user_id
         self.question_target = question_target
         self.user_anwser = user_anwser
@@ -27,7 +55,24 @@ class AgentWorkflow:
         self.last_state = last_state
         self.model = "gpt-4o-mini"
         self.history = list(reversed(history))
+
     async def run(self) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Executes the agent workflow with streaming output.
+        
+        Runs either a QuestionAgent or VerificationAgent based on state,
+        streams events back to the caller, and logs to Langfuse if configured.
+        
+        Yields:
+            Dict[str, Any]: Event dictionaries with keys:
+                - state (str): Current workflow state ("STARTING", "ANSWERING", 
+                  "THINKING", "VERIFYING", "NEXT_QUESTION", "TOOL_CALL", 
+                  "TOOL_OUTPUT", "DONE")
+                - answer (str): Text delta when state is "ANSWERING"
+                - thought (str): Event type when state is "THINKING"
+                - tool_name: Raw tool call item when state is "TOOL_CALL"
+                - tool_output (str): Tool output when state is "TOOL_OUTPUT"
+        """
         langfuse = None
         langfuse_enabled = False
         
@@ -112,7 +157,23 @@ class AgentWorkflow:
             async for step in run_workflow():
                 yield step
 
-    async def prepare_verification_agent(self,verification_prompt_name,question_prompt_name) ->Agent:
+    async def prepare_verification_agent(self, verification_prompt_name, question_prompt_name) -> Agent:
+        """
+        Prepares a VerificationAgent for validating user responses.
+        
+        Creates an agent with verification instructions and a handoff to
+        a QuestionAgent for transitioning after successful verification.
+        
+        Args:
+            verification_prompt_name (str): Name of the verification prompt.
+            question_prompt_name (str): Name of the next question prompt.
+        
+        Returns:
+            Agent: Configured verification agent with handoff capability.
+        
+        Raises:
+            RuntimeError: If agent preparation fails.
+        """
         try:
             agent_prompt = await self.mcp_server.session.get_prompt(verification_prompt_name)
             agent = Agent(
@@ -133,7 +194,23 @@ class AgentWorkflow:
         except Exception as e:
             raise RuntimeError(f"Failed to prepare agent: {e}")
         
-    async def prepare_question_agent(self,prompt_name) ->Agent:
+    async def prepare_question_agent(self, prompt_name) -> Agent:
+        """
+        Prepares a QuestionAgent for generating questions to the user.
+        
+        Creates an agent with question instructions fetched from the MCP server.
+        For special prompts (initial, done), uses simple fetch; otherwise
+        includes question and tool instruction context.
+        
+        Args:
+            prompt_name (str): Name of the question prompt to fetch.
+        
+        Returns:
+            Agent: Configured question agent with MCP tools attached.
+        
+        Raises:
+            RuntimeError: If agent preparation fails.
+        """
         try:
             #todo: dynamic handoffs based on allowed_handoffs
             if prompt_name == "initial_prompt" or prompt_name == "done_prompt":

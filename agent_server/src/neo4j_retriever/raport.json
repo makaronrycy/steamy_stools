@@ -1,0 +1,44 @@
+[
+  {
+    "id": "REQ-001",
+    "projekt": "PGVERSE",
+    "opis": "Skuteczność rozpoznawania tekstu w OCR wynosi co najmniej 90% dla tekstu drukowanego.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-002",
+    "projekt": "PGVERSE",
+    "opis": "Skuteczność rozpoznawania wykresów w OCR wynosi co najmniej 70%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-003",
+    "projekt": "PGVERSE",
+    "opis": "Skuteczność rozpoznawania tabel w OCR wynosi co najmniej 80%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-004",
+    "projekt": "PGVERSE",
+    "opis": "Skuteczność rozpoznawania wzorów matematycznych w OCR wynosi co najmniej 60%.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-005",
+    "projekt": "PGVERSE",
+    "opis": "Skuteczność rozpoznawania obrazków w OCR wynosi co najmniej 70%.",
+    "spelnione": true
+  },
+  {
+    "id": "REQ-006",
+    "projekt": "PGVERSE",
+    "opis": "Skuteczność analizy schematów wynosi co najmniej 70%.",
+    "spelnione": false
+  },
+  {
+    "id": "REQ-007",
+    "projekt": "PGVERSE",
+    "opis": "Skuteczność klasyfikacji wykresów wynosi co najmniej 70%.",
+    "spelnione": false
+  }
+]

@@ -120,4 +120,18 @@ export const api = {
       return [];
     }
   },
+
+  async generateReports(): Promise<{ status: string; message: string }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/reports/generate`,
+        {},
+        { timeout: 300000 } // 5 minutes timeout
+      );
+      return response.data;
+    } catch (error) {
+      console.error("Reports generation error:", error);
+      throw error;
+    }
+  },
 };

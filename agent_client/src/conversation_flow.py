@@ -49,13 +49,22 @@ class ConversationFlow:
     
     def determine_next_question(self) -> str:
         """
-        AI decyduje jakie pytanie zadać dalej na podstawie:
-        1. Co już wiemy (required_data)
-        2. Co brakuje
-        3. Kontekstu rozmowy
+        Determines the next question prompt to use based on conversation state.
+        
+        Uses a priority-based decision system to determine which assessment
+        should be collected next from the user.
+        
+        Priority order:
+            1. Identity verification (initial_prompt)
+            2. Self assessment (self_assessment_prompt)
+            3. Teammate assessments (teammate_assessment_*_prompt)
+            4. Leadership assessment - only for non-leaders (leadership_assessment_prompt)
+            5. Project assessments (project_assessment_prompt)
+            6. Objectives assessment (objectives_assessment_prompt)
+            7. Completion (completion_check_prompt)
         
         Returns:
-            Nazwa prompta do użycia
+            str: The name of the prompt to use for the next question.
         """
         
         # 1. WERYFIKACJA TOŻSAMOŚCI (najważniejsze)
@@ -88,7 +97,29 @@ class ConversationFlow:
         return "completion_check_prompt"
     
     def extract_info_from_response(self, user_response: str, tool_results: List[Dict]) -> Dict[str, Any]:
-        """Wydobywa informacje z odpowiedzi użytkownika i wyników narzędzi."""
+        """
+        Extracts and processes information from user response and tool results.
+        
+        Parses tool outputs to update internal state (required_data, context)
+        based on successful tool calls. Handles various tool types including
+        identity verification, grade submissions, and project information.
+        
+        Args:
+            user_response (str): The raw text response from the user.
+            tool_results (List[Dict]): List of tool call results, each containing:
+                - name (str): Tool name
+                - input (dict): Tool input parameters
+                - output (str): Tool output/result
+        
+        Returns:
+            Dict[str, Any]: Extracted information with keys like:
+                - student_index: Verified student index
+                - self_assessment_saved: True if self grade was saved
+                - teammate_assessment_saved: Index of graded teammate
+                - leadership_assessment_saved: True if leader grade saved
+                - project_assessment_saved: ID of graded project
+                - objectives_assessment_saved: True if objectives grade saved
+        """
         extracted = {}
         
         print(f"=== EXTRACTING INFO ===")
@@ -246,7 +277,19 @@ class ConversationFlow:
         return extracted
     
     def add_to_history(self, role: str, message: str):
-        """Dodaje wiadomość do historii rozmowy"""
+        """
+        Adds a message to the conversation history.
+        
+        Maintains a rolling window of the last 10 messages to provide
+        context for AI agents without overwhelming the context window.
+        
+        Args:
+            role (str): The role of the message sender (e.g., "user", "assistant").
+            message (str): The content of the message.
+        
+        Returns:
+            None
+        """
         self.conversation_history.append(f"{role}: {message}")
         # Trzymaj tylko ostatnie 10 wiadomości
         if len(self.conversation_history) > 10:
@@ -254,8 +297,18 @@ class ConversationFlow:
     
     def get_context_for_prompt(self) -> str:
         """
-        Buduje tekst kontekstu dla AI (do wstawienia w prompt).
-        AI widzi co już wiemy i czego brakuje.
+        Builds a formatted context string for AI prompt injection.
+        
+        Generates a human-readable summary of the current conversation state,
+        including what data has been collected (✓) and what is still missing (✗).
+        Also includes the last 3 conversation messages for continuity.
+        
+        Returns:
+            str: Formatted multi-line string containing:
+                - Identity information (name, index, verification status)
+                - Project context
+                - Assessment completion status (self, teammates, leader, projects, objectives)
+                - Recent conversation history
         """
         parts = []
         
@@ -312,7 +365,27 @@ class ConversationFlow:
         return "\n".join(parts)
     
     def to_dict(self) -> Dict[str, Any]:
-        """Serializuje stan do JSON (do response API)"""
+        """
+        Serializes the conversation flow state to a dictionary.
+        
+        Used for API responses and state persistence. Converts internal
+        state to a flat dictionary structure suitable for JSON serialization.
+        
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - first_name (str | None): User's first name
+                - last_name (str | None): User's last name
+                - student_index (str | None): Student index number
+                - verified (bool): Whether identity is verified
+                - has_self_grade (bool): Whether self assessment is complete
+                - graded_teammates (List[str]): List of graded teammate indices
+                - graded_projects (List[str]): List of graded project IDs
+                - has_leader_grade (bool): Whether leader assessment is complete
+                - has_objectives_grade (bool): Whether objectives assessment is complete
+                - is_leader (bool): Whether user is a team leader
+                - project_id (str | None): User's project ID
+                - project_name (str | None): User's project name
+        """
         result = {
             "first_name": self.required_data["identity"]["first_name"],
             "last_name": self.required_data["identity"]["last_name"],
@@ -332,7 +405,21 @@ class ConversationFlow:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]):
-        """Deserializuje stan z JSON"""
+        """
+        Deserializes a ConversationFlow instance from a dictionary.
+        
+        Reconstructs the conversation flow state from a previously serialized
+        dictionary, typically from API request or database storage.
+        
+        Args:
+            data (Dict[str, Any]): Dictionary containing serialized state with keys:
+                - first_name, last_name, student_index, verified
+                - has_self_grade, has_leader_grade, has_objectives_grade
+                - project_id, project_name, is_leader
+        
+        Returns:
+            ConversationFlow: New instance with restored state.
+        """
         flow = cls()
         
         # Załaduj tożsamość

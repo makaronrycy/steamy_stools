@@ -14,6 +14,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasFetchedInitial = useRef(false); // Prevent double fetch in StrictMode
 
   // Speech recognition hook
   const {
@@ -30,6 +31,33 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ messages, onMessageAdded, 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Auto-trigger agent's first message when component mounts
+  useEffect(() => {
+    const fetchInitialGreeting = async () => {
+      if (hasFetchedInitial.current) return; // Prevent double fetch
+      if (messages.length === 0 && !isLoading) {
+        hasFetchedInitial.current = true;
+        setIsLoading(true);
+        try {
+          // Send empty/init message to get agent to start conversation
+          const response = await api.sendToLLM("", userId);
+          const botMessage: Message = {
+            sender: "🤖 GPT",
+            content: response,
+            timestamp: new Date(),
+          };
+          onMessageAdded(botMessage);
+        } catch (error) {
+          console.error("Failed to get initial greeting:", error);
+          hasFetchedInitial.current = false; // Allow retry on error
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+    fetchInitialGreeting();
+  }, []); // Run only once on mount
 
   // Update input when transcript changes
   useEffect(() => {
