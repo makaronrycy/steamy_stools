@@ -1,13 +1,38 @@
+"""
+Pydantic models for MCP tool request/response validation.
+
+This module defines all request models used by MCP tools for:
+- GET operations: Retrieving grades, user info, completion status
+- SET operations: Saving grades, assessments, and open answers
+
+All models use Pydantic Field for validation and description.
+"""
+
 from pydantic import BaseModel,Field
 from typing import Optional
 
+
 class Message(BaseModel):
+    """
+    Generic message model for simple text content.
+    
+    Attributes:
+        content (str): The message content.
+    """
     content: str = Field(
         ..., 
         description="The content of the message"
     )
 
+
 class NameEntity(BaseModel):
+    """
+    Model representing a person's name.
+    
+    Attributes:
+        first_name (str): First name of the person.
+        last_name (str): Last name of the person.
+    """
     first_name: str = Field(
         ..., 
         description="First name of the person"

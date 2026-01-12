@@ -14,11 +14,37 @@ SAFE_WORD = os.getenv("SAFE_WORD", "KONIEC")
 
 
 def get_app() -> Sanic:
+    """
+    Creates and configures the Sanic application for the agent client.
+    
+    Sets up the /start_agent endpoint and all helper functions for
+    managing the conversation workflow with AI agents.
+    
+    Returns:
+        Sanic: Configured Sanic application instance with routes registered.
+    
+    Environment Variables:
+        MCP_SERVER_URL: URL of the MCP server (default: http://localhost:10000)
+        SAFE_WORD: Word to end the conversation (default: KONIEC)
+        LANGFUSE_SECRET_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_HOST: Langfuse config
+    """
     app = Sanic("AgentClientApp")
 
     # ---------------------- helpers ----------------------
 
     def _extract_tool_text(tool_result) -> str:
+        """
+        Extracts text content from an MCP tool result.
+        
+        Parses the structured tool result to retrieve the text content
+        from the first content item.
+        
+        Args:
+            tool_result: The raw tool result object with model_dump() method.
+        
+        Returns:
+            str: The extracted text content, or empty string if extraction fails.
+        """
         data = tool_result.model_dump()
         try:
             return data["content"][0]["text"]
@@ -26,6 +52,18 @@ def get_app() -> Sanic:
             return ""
 
     def _parse_maybe_json(text: str):
+        """
+        Attempts to parse text as JSON or Python literal.
+        
+        Tries JSON parsing first, then falls back to Python's ast.literal_eval
+        for Python-style dict/list literals.
+        
+        Args:
+            text (str): The text to parse.
+        
+        Returns:
+            dict | list | None: Parsed object, or None if parsing fails.
+        """
         if not text or not isinstance(text, str):
             return None
         s = text.strip()
@@ -46,16 +84,39 @@ def get_app() -> Sanic:
             return None
 
     def _needs_target(state_key: str) -> bool:
+        """
+        Checks if a state requires a target entity to be set.
+        
+        Certain states (teammate/project/leader/assumption evaluation) require
+        a specific target (person, project, or assumption) to be identified
+        before the question can be asked.
+        
+        Args:
+            state_key (str): The state key to check.
+        
+        Returns:
+            bool: True if the state requires a target, False otherwise.
+        """
         return state_key in ("evaluate_teammate_grade", "evaluate_project_grade", "evaluate_leader_grade", "evaluate_assumption")
 
     async def _compute_target_for_state(mcp_server: MCPServerStreamableHttp, state_key: str):
         """
-        Picks the pending target for states that need it.
-        IMPORTANT: relies on server tools returning JSON strings:
-          - get_random_ungraded_member_tool -> dict or null
-          - get_ungraded_projects_tool -> list[dict]
-          - get_leader_info_tool -> dict
-          - get_random_unevaluated_assumption_tool -> dict or null
+        Computes the next target entity for states that require one.
+        
+        Calls appropriate MCP server tools to fetch the next ungraded/unevaluated
+        entity (teammate, project, leader, or assumption) for the given state.
+        
+        Args:
+            mcp_server (MCPServerStreamableHttp): Connected MCP server instance.
+            state_key (str): The state key requiring a target:
+                - "evaluate_teammate_grade": Gets next ungraded teammate
+                - "evaluate_project_grade": Gets next ungraded project
+                - "evaluate_leader_grade": Gets leader info
+                - "evaluate_assumption": Gets next unevaluated assumption
+        
+        Returns:
+            dict | None: Target entity dict with relevant fields (name, index, etc.),
+                        or None if no target is available.
         """
         if state_key == "evaluate_teammate_grade":
             r = await mcp_server.session.call_tool("get_random_ungraded_member_tool") 
@@ -82,6 +143,20 @@ def get_app() -> Sanic:
         return None
 
     def _render_question_text(state_key: str, base_question: str, target: dict | None) -> str:
+        """
+        Renders the final question text with target context.
+        
+        Augments the base question with relevant target information
+        (person name, project name, assumption description) for context.
+        
+        Args:
+            state_key (str): The current state key.
+            base_question (str): The base question template.
+            target (dict | None): Target entity dict with relevant fields.
+        
+        Returns:
+            str: Formatted question text with target context appended.
+        """
         if state_key == "evaluate_teammate_grade" and target:
             name = (target.get("name") or "").strip()
             surname = (target.get("surname") or "").strip()
@@ -112,6 +187,17 @@ def get_app() -> Sanic:
         return base_question
 
     def _is_yes(text: str) -> bool:
+        """
+        Checks if user input represents an affirmative response.
+        
+        Supports multiple Polish and English affirmative phrases.
+        
+        Args:
+            text (str): User input text to check.
+        
+        Returns:
+            bool: True if the text is an affirmative response.
+        """
         t = (text or "").strip().lower()
         return (
             t in ("tak", "t", "yes", "y", "ok", "potwierdzam", "zgadza się", "zgadza sie", "to ja", "zgadza")
@@ -119,9 +205,30 @@ def get_app() -> Sanic:
         )
 
     def _is_safe_word(text: str) -> bool:
+        """
+        Checks if user input matches the conversation termination safe word.
+        
+        Args:
+            text (str): User input text to check.
+        
+        Returns:
+            bool: True if the text matches the SAFE_WORD (case-insensitive).
+        """
         return (text or "").strip().upper() == (SAFE_WORD or "KONIEC").strip().upper()
 
     async def _get_completion_status(mcp_server: MCPServerStreamableHttp) -> dict:
+        """
+        Fetches the student's current completion status from the database.
+        
+        Args:
+            mcp_server (MCPServerStreamableHttp): Connected MCP server instance.
+        
+        Returns:
+            dict: Completion status containing assessment progress for:
+                - self_assessment, teammate_assessments, project_assessments
+                - leadership_assessment, objectives_assessment
+                - assumption_evaluations, masters_intent, study_program_feedback
+        """
         r = await mcp_server.session.call_tool("get_student_completion_status_tool") 
         parsed = _parse_maybe_json(_extract_tool_text(r))
         return parsed if isinstance(parsed, dict) else {}
@@ -132,9 +239,21 @@ def get_app() -> Sanic:
         pending_target: dict | None
     ) -> tuple[bool, dict]:
         """
-        DB-first completion check for the *pending* item.
-        This prevents loops when model replied but tools didn't persist.
-        Returns: (is_completed, completion_status)
+        Checks if the pending state's assessment is complete in the database.
+        
+        Uses DB as source of truth to verify if the current pending item
+        (self-grade, teammate grade, etc.) has been successfully saved.
+        This prevents infinite loops when the model responds but tools fail.
+        
+        Args:
+            mcp_server (MCPServerStreamableHttp): Connected MCP server instance.
+            pending_state_key (str): The current pending state key.
+            pending_target (dict | None): The target entity for target-based states.
+        
+        Returns:
+            tuple[bool, dict]: (is_completed, completion_status)
+                - is_completed: True if the pending item is complete
+                - completion_status: Full completion status dict from DB
         """
         st = await _get_completion_status(mcp_server)
 
@@ -187,7 +306,18 @@ def get_app() -> Sanic:
 
     def _missing_info_hint(pending_state_key: str, pending_target: dict | None, completion_status: dict) -> str:
         """
-        Produces a clear clarification request based on DB completion flags.
+        Generates a precise clarification hint based on DB completion flags.
+        
+        Analyzes what specific information is missing (grade, explanation, etc.)
+        and produces a targeted clarification request for the user.
+        
+        Args:
+            pending_state_key (str): The current pending state key.
+            pending_target (dict | None): The target entity for target-based states.
+            completion_status (dict): Current completion status from DB.
+        
+        Returns:
+            str: A formatted clarification request specifying what's missing.
         """
         if pending_state_key == "self_evaluation":
             det = completion_status.get("self_assessment", {})
@@ -279,8 +409,19 @@ def get_app() -> Sanic:
 
     def _contextual_followup(pending_state_key: str, pending_target: dict | None, user_answer: str, completion_status: dict) -> str:
         """
-        Human-friendly follow-up question based on user's last answer + what DB says is missing.
-        Does NOT change state logic; only changes phrasing of clarification.
+        Generates a human-friendly follow-up based on user's answer and DB state.
+        
+        Creates contextual hints that acknowledge what the user said while
+        guiding them to provide missing information. Does not change state logic.
+        
+        Args:
+            pending_state_key (str): The current pending state key.
+            pending_target (dict | None): The target entity for target-based states.
+            user_answer (str): The user's last response.
+            completion_status (dict): Current completion status from DB.
+        
+        Returns:
+            str: A contextual follow-up hint for the user.
         """
         ua = (user_answer or "").strip()
         ua_low = ua.lower()
@@ -381,6 +522,20 @@ def get_app() -> Sanic:
         return "Podpowiedź: Doprecyzuj odpowiedź, 1–3 zdania na pytanie."
 
     async def _build_verification_agent(mcp_server: MCPServerStreamableHttp, agent_name: str, prompt_name: str) -> Agent:
+        """
+        Builds a VerificationAgent for validating and saving user responses.
+        
+        Creates an agent that uses MCP tools to verify user answers and
+        persist them to the database when valid.
+        
+        Args:
+            mcp_server (MCPServerStreamableHttp): Connected MCP server instance.
+            agent_name (str): Name for the agent (e.g., "VerificationAgent/self_evaluation").
+            prompt_name (str): Name of the verification prompt to fetch from MCP server.
+        
+        Returns:
+            Agent: Configured verification agent with MCP tools attached.
+        """
 
         p = await mcp_server.session.get_prompt(prompt_name)
         base_instructions = p.messages[0].content.text
@@ -394,6 +549,18 @@ def get_app() -> Sanic:
         )
 
     async def _build_post_interview_chat_agent(mcp_server: MCPServerStreamableHttp) -> Agent:
+        """
+        Builds a lightweight chat agent for post-interview conversation.
+        
+        Creates an agent without MCP tools (no DB writes) for casual
+        conversation after the interview is complete.
+        
+        Args:
+            mcp_server (MCPServerStreamableHttp): MCP server (not used, kept for signature consistency).
+        
+        Returns:
+            Agent: Chat agent without tools, responds naturally to user messages.
+        """
         instructions = (
             "Wywiad został zakończony. Teraz prowadzisz luźny chitchat z użytkownikiem.\n"
             "- Odpowiadaj naturalnie, krótko i po ludzku.\n"
@@ -414,8 +581,19 @@ def get_app() -> Sanic:
         target: dict | None
     ) -> Agent:
         """
-        Builds a QuestionAgent that uses the 'question_prompt' from MCP server
-        to dynamically generate the question text to ask the user.
+        Builds a QuestionAgent that generates questions for the user.
+        
+        Fetches the question prompt from MCP server and configures an agent
+        to dynamically generate question text with target context.
+        
+        Args:
+            mcp_server (MCPServerStreamableHttp): Connected MCP server instance.
+            state (State): The current state configuration.
+            base_question (str): Base question text from the state.
+            target (dict | None): Target entity for target-based states.
+        
+        Returns:
+            Agent: Configured question agent with MCP tools attached.
         """
         # Prepare the formatted question text with target info
         formatted_question = _render_question_text(state.name, base_question, target)
@@ -447,6 +625,21 @@ def get_app() -> Sanic:
         )
 
     async def _run_agent_text(agent: Agent, input_text: str, langfuse_client=None, pending_state: str | None = None) -> str:
+        """
+        Runs an agent and collects the text output.
+        
+        Executes the agent with streaming, collects output deltas, and
+        optionally logs to Langfuse for observability.
+        
+        Args:
+            agent (Agent): The agent to run.
+            input_text (str): Input prompt for the agent.
+            langfuse_client: Optional Langfuse client for logging.
+            pending_state (str | None): Current state key for logging context.
+        
+        Returns:
+            str: The complete text output from the agent.
+        """
         runner = Runner()
         result = runner.run_streamed(starting_agent=agent, input=input_text)
 
@@ -525,6 +718,21 @@ def get_app() -> Sanic:
         user_id: int,
         state_key: str
     ) -> str:
+        """
+        Generates the initial identity verification question.
+        
+        Fetches user info from the database and presents it for
+        confirmation. Saves the question to conversation history.
+        
+        Args:
+            mcp_server (MCPServerStreamableHttp): Connected MCP server instance.
+            session_id (str | None): Current session ID for history persistence.
+            user_id (int): The user ID from the request.
+            state_key (str): Current state key for logging.
+        
+        Returns:
+            str: Formatted identity verification question.
+        """
         info_raw = _extract_tool_text(await mcp_server.session.call_tool("get_user_info_tool")) 
         info = _parse_maybe_json(info_raw) or {}
         if isinstance(info, dict) and not info.get("error"):
@@ -558,6 +766,30 @@ def get_app() -> Sanic:
 
     @app.route("/start_agent", methods=["POST"])
     async def start_agent(request: request.Request):
+        """
+        Main endpoint for processing conversation turns.
+        
+        Handles the complete conversation flow including:
+        - Session management and state persistence
+        - Identity verification (initial state)
+        - Question generation via QuestionAgent
+        - Answer verification via VerificationAgent
+        - Outlier detection and follow-up questions
+        - Post-interview chitchat mode
+        
+        Request Body:
+            user_id (int): The user's identifier
+            anwser (str): User's response to the last question
+        
+        Returns:
+            JSON response with:
+                - status (str): "completed" or "error"
+                - question (str): The next question/response for the user
+                - current_state (str): Current state key
+                - next_state (str): Next state key
+                - chat_mode (bool): True if in post-interview chat
+                - ended (bool): True if conversation is permanently ended
+        """
         # Initialize Langfuse
         langfuse = None
         try:
