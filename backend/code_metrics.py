@@ -23,6 +23,9 @@ WORKSPACE_DIR = os.path.join(os.getcwd(), "workspace")
 REPO_DIR = os.path.join(WORKSPACE_DIR, "repo")
 HOST_WORKSPACE_DIR = os.getenv("HOST_WORKSPACE_DIR", WORKSPACE_DIR)
 
+URI = os.getenv("NEO4J_URI")
+USERNAME = os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME")
+PASSWORD = os.getenv("NEO4J_PASSWORD")
 SONAR_HOST_URL = os.getenv("SONAR_HOST_URL", "http://host.docker.internal:9000")
 SONAR_API_URL = os.getenv("SONAR_API_URL", "http://localhost:9000")
 SONAR_TOKEN = os.getenv("SONAR_TOKEN")
@@ -110,8 +113,6 @@ def load_commits(
 HOST_WORKSPACE_DIR = os.getenv("HOST_WORKSPACE_DIR", WORKSPACE_DIR)
 DOCKER_NETWORK = os.getenv("DOCKER_NETWORK", "steamy_stools_steamy-network")
 
-def run_sonar_scanner():
-    print(f"[DEBUG] Starting SonarScanner via Docker. Volume: {HOST_WORKSPACE_DIR}:/usr/src, Network: {DOCKER_NETWORK}")
 def run_sonar_scanner() -> None:
     """
     Uruchamia SonarScanner w kontenerze Docker.
