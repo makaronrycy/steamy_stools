@@ -93,6 +93,17 @@ class AgentWorkflow:
         
         # Define the main logic as a separate async generator
         async def run_workflow():
+            """
+            Executes the core agent logic within the observability context.
+
+            Determines the starting agent (Verification or Question) based on the
+            current state, runs the agent stream, and normalizes raw runner events
+            into the standard state dictionary format expected by the frontend.
+
+            Yields:
+                Dict[str, Any]: Normalized event objects containing state transitions,
+                text deltas, thoughts, or tool outputs.
+            """
             yield {"state": "STARTING"}
             if self.state.name == "initial" or self.state.name =="done" or self.last_state is None or self.last_state.verification_prompt_name is None:
                 agent = await self.prepare_question_agent(self.state.prompt_name)

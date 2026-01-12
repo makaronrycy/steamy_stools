@@ -4,6 +4,13 @@ from sanic import Sanic
 from functools import partial
 from sanic.worker.loader import AppLoader
 def main():
+    """
+    Configures and starts the Sanic application server.
+
+    Initializes the app using the AppLoader factory pattern and applies
+    custom configuration for timeouts and worker processes.
+
+    """
     loader = AppLoader(factory = partial(get_app))
     app = loader.load()
     app.config.REQUEST_TIMEOUT = 300  

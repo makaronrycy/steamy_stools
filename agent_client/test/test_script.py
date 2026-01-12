@@ -7,6 +7,19 @@ ENDPOINT = "/start_agent"
 HEADERS = {"Content-Type": "application/json"}
 
 def post(payload):
+    """
+    Sends a HTTP POST request to the configured server endpoint.
+
+    Establishes a connection, serializes the payload to JSON, and parses
+    the server's response. Handles connection timeouts and decoding errors.
+
+    Args:
+        payload (dict): The data dictionary to send in the request body.
+
+    Returns:
+        dict: The parsed JSON response from the server, or a dictionary
+        containing error details if the request fails.
+    """
     conn = http.client.HTTPConnection(HOST, PORT, timeout=120)
     conn.request("POST", ENDPOINT, json.dumps(payload), HEADERS)
     res = conn.getresponse()
@@ -20,6 +33,13 @@ def post(payload):
         return {"status": "error", "error": "Non-JSON response", "raw": data}
 
 def main():
+    """
+    Runs the command-line interface for the agent conversation.
+
+    Manages the interactive session loop: prompts for user credentials,
+    sends input to the server, and displays the agent's questions.
+    Handles the 'exit' command and server-side termination signals.
+    """
     user_id = int(input("Enter user_id (student index, e.g., 2001): ").strip())
     question_target = "general"
 
@@ -43,7 +63,7 @@ def main():
     print(f"  Next State: {next_state}")
     print(f"\n Agent: {question}\n")
 
-    # ✅ conversation loop ALWAYS runs (also for current_state == "done")
+    # conversation loop ALWAYS runs (also for current_state == "done")
     while True:
         answer = input(" Your answer (or 'exit' to quit): ").strip()
         if not answer:

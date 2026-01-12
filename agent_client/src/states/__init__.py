@@ -2,6 +2,26 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 class State(BaseModel):
+    """
+    Represents a single step (state) in the interview conversation flow.
+
+    Defines the configuration for a specific phase of the interview, including
+    the base question, associated LLM prompts, and tool permissions for different
+    agents (QuestionAgent vs. VerificationAgent).
+
+    Attributes:
+        name (str): Unique identifier for the state (e.g., 'self_evaluation').
+        description (str): Short description for logging and debugging purposes.
+        prompt_name (str): The name of the MCP prompt used to generate the question.
+        verification_prompt_name (Optional[str]): The name of the MCP prompt used
+            to verify and save the user's answer. If None, verification is skipped.
+        question (str): The base template for the question to be asked.
+        tool_instructions (str): Additional instructions regarding tool usage.
+        allowed_tools_question (List[str]): List of tool names allowed during the
+            question generation phase (read-only access usually).
+        allowed_tools_verification (List[str]): List of tool names allowed during the
+            answer verification phase (write access usually).
+    """
     name: str
     description: str
     prompt_name: str

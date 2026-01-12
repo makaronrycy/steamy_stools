@@ -427,10 +427,26 @@ def get_app() -> Sanic:
         ua_low = ua.lower()
 
         def _self_missing():
+            """
+            Checks which components of the self-assessment are missing.
+
+            Returns:
+                tuple[bool, bool]: A tuple (missing_grade, missing_explanation).
+                                   True indicates the component is missing.
+            """
             det = completion_status.get("self_assessment", {})
             return (not det.get("has_grade", False), not det.get("has_explanation", False))
 
         def _teammate_missing():
+            """
+            Checks missing components for the specific teammate currently being targeted.
+            
+            Matches the pending target index against incomplete details in the status.
+
+            Returns:
+                tuple[bool, bool]: A tuple (missing_grade, missing_explanation).
+                                   Returns (True, True) if the teammate record is not found.
+            """
             idx = pending_target.get("index") if pending_target else None
             incomplete = completion_status.get("teammate_assessments", {}).get("incomplete_details", []) or []
             for d in incomplete:
@@ -439,6 +455,15 @@ def get_app() -> Sanic:
             return (True, True)
 
         def _project_missing():
+            """
+            Checks missing components for the specific project currently being targeted.
+
+            Matches the pending target project_id against incomplete details in the status.
+
+            Returns:
+                tuple[bool, bool]: A tuple (missing_grade, missing_explanation).
+                                   Returns (True, True) if the project record is not found.
+            """
             pid = pending_target.get("project_id") if pending_target else None
             incomplete = completion_status.get("project_assessments", {}).get("incomplete_details", []) or []
             for d in incomplete:
@@ -447,6 +472,12 @@ def get_app() -> Sanic:
             return (True, True)
 
         def _leader_missing():
+            """
+            Checks which components of the leadership assessment are missing.
+
+            Returns:
+                tuple[bool, bool]: A tuple (missing_grade, missing_explanation).
+            """
             det = completion_status.get("leadership_assessment", {})
             return (not det.get("has_grade", False), not det.get("has_explanation", False))
 
@@ -495,6 +526,13 @@ def get_app() -> Sanic:
 
         if pending_state_key == "evaluate_assumption":
             def _assumption_missing():
+                """
+                Checks missing components for the specific assumption currently being targeted.
+
+                Returns:
+                    tuple[bool, bool]: A tuple (missing_evaluation, missing_explanation).
+                                       Note: Assumptions check for 'evaluation' (true/false status), not 'grade'.
+                """
                 assumption_id = pending_target.get("assumption_id") if pending_target else None
                 incomplete = completion_status.get("assumption_evaluations", {}).get("incomplete_details", []) or []
                 for d in incomplete:

@@ -3,8 +3,11 @@ import logging
 
 class ConversationFlow:
     """
-    Zarządza przepływem rozmowy - AI decyduje o kolejnych pytaniach na podstawie kontekstu.
-    Rozumie co użytkownik mówi i wydobywa informacje z dowolnej odpowiedzi.
+    Manages the conversation flow and state for the interview process.
+
+    This class acts as a state machine that determines the next best question 
+    to ask based on the user's current progress. It also handles the extraction 
+    of structured data from tool outputs and maintains the conversation context.
     """
     
     def __init__(self):
