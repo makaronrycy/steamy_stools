@@ -1,6 +1,32 @@
 import pandas as pd
 
-def evaluate_commit_regularities(dfs_names, unique_names, PROJECT_START_TIME, WEEKS):
+def evaluate_commit_regularities(
+    dfs_names: list[pd.DataFrame],
+    unique_names: pd.Index,
+    PROJECT_START_TIME: pd.Timestamp,
+    WEEKS: int
+) -> pd.DataFrame:
+    """
+    Oblicza regularność commitów dla autorów projektu.
+
+    Parameters
+    ----------
+    dfs_names : list[pandas.DataFrame]
+        Lista DataFrame'ów commitów per autor (kolumna `date`).
+    unique_names : pandas.Index
+        Unikalne nazwy autorów (kolejność zgodna z `dfs_names`).
+    PROJECT_START_TIME : pandas.Timestamp
+        Data rozpoczęcia projektu.
+    WEEKS : int
+        Liczba tygodni trwania projektu.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Wyniki regularności commitów.
+        Kolumny: author, total_commits, missing_weeks,
+        weeks_expected, regularity_score.
+    """
     results = []
 
     for df, author in zip(dfs_names, unique_names):

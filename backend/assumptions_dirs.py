@@ -2,7 +2,22 @@ import os
 import json
 from pathlib import Path
 
-def create_assumption_dirs():
+def create_assumption_dirs() -> dict[str, str]:
+    """
+    Tworzy strukturę katalogów „assumptions” dla projektów z pliku projects.json.
+
+    Odczytuje listę projektów z `data/projects.json` i dla każdego projektu
+    tworzy katalogi:
+    - assumptions/<project>/start_assumptions
+    - assumptions/<project>/end_assumptions
+
+    Returns
+    -------
+    dict[str, str]
+        Słownik statusu operacji:
+        - status : "success" lub "error"
+        - message : opis wyniku lub błędu
+    """
     try:
         # Use absolute paths or relative to execution context (backend container workdir is /app)
         # We assume we are running from 'backend' directory or mapped to /app
