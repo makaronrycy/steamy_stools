@@ -312,13 +312,11 @@ def get_app() -> Sanic:
         if pending_state_key == "self_evaluation":
             missing_grade, missing_exp = _self_missing()
             if missing_grade and missing_exp:
-                return "OK — podaj proszę **ocenę (2.0–5.0)** oraz **1–2 zdania uzasadnienia** w jednej wiadomości."
+                return "Podpowiedź: Podaj **ocenę (2.0–5.0)** oraz **1–2 zdania uzasadnienia**."
             if missing_grade:
-                return "Rozumiem. Podaj proszę jeszcze **konkretną ocenę 2.0–5.0** (np. 4.5)."
+                return "Podpowiedź: Podaj jeszcze **konkretną ocenę 2.0–5.0** (np. 4.5)."
             if missing_exp:
-                if any(x in ua_low for x in ["super", "świetn", "mega", "kozack", "git", "zajeb"]):
-                    return "Brzmi mocno 🙂 Możesz rozwinąć **dlaczego** tak uważasz? Podaj 1–2 konkretne przykłady z projektu."
-                return "Możesz dopisać **1–2 zdania uzasadnienia** i podać konkretne przykłady (co dokładnie zrobiłeś/aś)?"
+                return "Podpowiedź: Dopisz **1–2 zdania uzasadnienia** i podaj konkretne przykłady (co dokładnie zrobiłeś/aś)?"
 
         if pending_state_key == "evaluate_teammate_grade":
             missing_grade, missing_exp = _teammate_missing()
@@ -326,21 +324,21 @@ def get_app() -> Sanic:
             if pending_target:
                 name = f"{pending_target.get('name', '')} {pending_target.get('surname', '')}".strip()
             if missing_grade and missing_exp:
-                return f"Jasne — podaj proszę **ocenę (2.0–5.0)** dla {name} oraz **krótkie uzasadnienie** (1–2 zdania)."
+                return f"Podpowiedź: Podaj **ocenę (2.0–5.0)** dla {name} oraz **krótkie uzasadnienie** (1–2 zdania)."
             if missing_grade:
-                return f"Podaj proszę jeszcze samą **ocenę 2.0–5.0** dla {name}."
+                return f"Podpowiedź: Podaj jeszcze samą **ocenę 2.0–5.0** dla {name}."
             if missing_exp:
-                return f"Możesz krótko doprecyzować **dlaczego** taka ocena dla {name}? 1–2 konkretne przykłady."
+                return f"Podpowiedź: Dopisz **krótkie uzasadnienie** dla {name} (1–2 zdania)."
 
         if pending_state_key == "evaluate_project_grade":
             missing_grade, missing_exp = _project_missing()
             pname = (pending_target.get("project_name") if pending_target else "") or "tego projektu"
             if missing_grade and missing_exp:
-                return f"OK — podaj proszę **ocenę (2.0–5.0)** dla „{pname}” i **krótkie uzasadnienie** (1–2 zdania)."
+                return f"Podpowiedź: Podaj **ocenę (2.0–5.0)** dla „{pname}” i **krótkie uzasadnienie** (1–2 zdania)."
             if missing_grade:
-                return f"Podaj proszę jeszcze **ocenę 2.0–5.0** dla „{pname}”."
+                return f"Podpowiedź: Podaj jeszcze **ocenę 2.0–5.0** dla „{pname}”."
             if missing_exp:
-                return f"Możesz dopisać **krótkie uzasadnienie** dla „{pname}”? Najlepiej 1–2 zdania (co działa / co nie)."
+                return f"Podpowiedź: Dopisz **krótkie uzasadnienie** dla „{pname}”? Najlepiej 1–2 zdania (co działa / co nie)."
 
         if pending_state_key == "evaluate_leader_grade":
             missing_grade, missing_exp = _leader_missing()
@@ -348,11 +346,11 @@ def get_app() -> Sanic:
             if pending_target:
                 name = f"{pending_target.get('name', '')} {pending_target.get('surname', '')}".strip()
             if missing_grade and missing_exp:
-                return f"OK — podaj proszę **ocenę (2.0–5.0)** dla lidera {name} i **krótkie uzasadnienie** (1–2 zdania)."
+                return f"Podpowiedź: Podaj **ocenę (2.0–5.0)** dla lidera {name} i **krótkie uzasadnienie** (1–2 zdania)."
             if missing_grade:
-                return f"Podaj proszę jeszcze **ocenę 2.0–5.0** dla lidera {name}."
+                return f"Podpowiedź: Podaj jeszcze **ocenę 2.0–5.0** dla lidera {name}."
             if missing_exp:
-                return f"Możesz rozwinąć **dlaczego** taka ocena dla lidera {name}? Podaj 1–2 konkretne przykłady."
+                return f"Podpowiedź: Rozwiń **dlaczego** taka ocena dla lidera {name}? Podaj 1–2 konkretne przykłady."
 
         if pending_state_key == "evaluate_assumption":
             def _assumption_missing():
@@ -366,23 +364,21 @@ def get_app() -> Sanic:
             missing_eval, missing_exp = _assumption_missing()
             assumption_name = (pending_target.get("name") if pending_target else "") or "założeń"
             if missing_eval and missing_exp:
-                return f"OK - czy założenia '{assumption_name}' zostały spełnione? Podaj **TAK/NIE** i **krótkie uzasadnienie** (1-2 zdania)."
+                return f"Podpowiedź: Odpowiedz czy '{assumption_name}' zostały spełnione? Podaj **TAK/NIE** i **krótkie uzasadnienie** (1-2 zdania)."
             if missing_eval:
-                return f"Podaj proszę jasną odpowiedź: **TAK** (spełnione) lub **NIE** (niespełnione) dla '{assumption_name}'."
+                return f"Podpowiedź: Podaj odpowiedź: **TAK** (spełnione) lub **NIE** (niespełnione) dla '{assumption_name}'."
             if missing_exp:
-                return f"Możesz dopisać **dlaczego** założenia '{assumption_name}' zostały/nie zostały spełnione? 1-2 konkretne przykłady.{pending_target.get("system_accepted")}"
+                return f"Podpowiedź: Rozwiń **dlaczego** założenia '{assumption_name}' zostały/nie zostały spełnione? 1-2 konkretne przykłady.{pending_target.get("system_accepted")}"
 
         if pending_state_key == "masters_intent":
             # this state is NOT numeric; we just need an answer + short reason
-            return "Odpowiedz proszę jasno: czy planujesz magisterkę (**tak/nie**) i dopisz krótko dlaczego (1–2 zdania)."
+            return "Podpowiedź: Odpowiedz jasno: czy planujesz magisterkę (**tak/nie**) i dopisz krótko dlaczego (1–2 zdania)."
 
         if pending_state_key == "study_program_feedback":
             # this state is NOT numeric; we just need feedback
-            if any(x in ua_low for x in ["nie mam", "brak", "wszystko ok", "w porzadku", "w porządku"]):
-                return "OK — a czy jest coś, co **szczególnie** Ci się podoba (np. przedmiot / forma zajęć) albo co byś choć trochę usprawnił/a? 1–2 zdania."
-            return "Możesz doprecyzować: **co byś zmienił/a** w programie studiów albo co najbardziej Ci się podoba? 1–3 zdania."
+            return "Podpowiedź: Sprecyzuj **co byś zmienił/a** w programie studiów albo co najbardziej Ci się podoba lub nie podoba? 1–3 zdania."
 
-        return "Możesz doprecyzować odpowiedź? Odpowiedz proszę 1–3 zdaniami na pytanie."
+        return "Podpowiedź: Doprecyzuj odpowiedź, 1–3 zdania na pytanie."
 
     async def _build_verification_agent(mcp_server: MCPServerStreamableHttp, agent_name: str, prompt_name: str) -> Agent:
 
