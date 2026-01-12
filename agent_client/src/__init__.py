@@ -807,7 +807,7 @@ def get_app() -> Sanic:
             print(f"Received data: {data}")
 
             user_id = data.get("user_id", 0)
-            user_anwser = data.get("anwser", "No anwser for last question.")
+            user_anwser = data.get("answer", data.get("anwser", "No answer for last question."))
 
             print(f"Connecting to MCP server at {MCP_SERVER_URL}/mcp...")
 
@@ -1231,13 +1231,10 @@ def get_app() -> Sanic:
             # 5) Verify + SAVE (verification tools write to DB)  [only if not skip_verification]
             if not skip_verification:
                 if pending_state_key == "initial":
-                    saved = _is_yes(user_anwser)
-                    if not saved:
-                        verify_text = (
-                            "Według bazy tożsamość nie została potwierdzona.\n"
-                            "Jeśli to Ty, wpisz: **tak**.\n"
-                            "Jeśli to nie Ty, wpisz: **nie** (i uruchom rozmowę ponownie z poprawnym user_id)."
-                        )
+                    # Auto-confirm identity since user already selected themselves from UI
+                    # user_id is passed from frontend UserSelector, so we trust the selection
+                    saved = True
+                    verify_text = ""
                 else:
                     verify_prompt_name = pending_state.verification_prompt_name
                     if not verify_prompt_name:

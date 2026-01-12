@@ -292,6 +292,27 @@ async def run_assumptions_analysis(background_tasks: BackgroundTasks):
             "message": f"Błąd analizy założeń: {str(e)}"
         }
 
+@app.post("/api/reports/generate")
+async def generate_reports(background_tasks: BackgroundTasks):
+    """
+    Generuje raporty CSV z bazy Neo4j.
+    Wywołuje skrypty generate_reports.py i generate_final_grades.py z agent-server.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(f"{AGENT_SERVER_URL}/generate_reports")
+            return response.json()
+    except httpx.TimeoutException:
+        return {
+            "status": "error",
+            "message": "Przekroczono czas oczekiwania na generowanie raportów."
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Błąd generowania raportów: {str(e)}"
+        }
+
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Uruchamianie serwera HTTP/WebSocket na porcie 8000...")

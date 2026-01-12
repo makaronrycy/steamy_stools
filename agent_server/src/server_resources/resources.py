@@ -125,4 +125,54 @@ async def completion_status_endpoint(request):
     )
     status = connector.get_completion_status()
     logging.warning(f'[completion_status_endpoint] {datetime.now()} finished')
+<<<<<<< HEAD
     return JSONResponse(status, status_code=200)
+=======
+    return JSONResponse(status, status_code=200)
+
+@MCP_SERVER.custom_route(path='/generate_reports', methods=['POST'])
+async def generate_reports_endpoint(request):
+    """
+    Generates CSV reports from Neo4j database.
+    Runs both generate_reports.py and generate_final_grades.py scripts.
+    
+    Returns:
+        JSONResponse: Status and message with report generation results.
+    """
+    logging.warning(f'[generate_reports_endpoint] {datetime.now()} started')
+    
+    try:
+        from ..neo4j_retriever.generate_reports import Neo4jReportGenerator
+        from ..neo4j_retriever.generate_final_grades import FinalGradeCalculator
+        
+        # Generate all reports
+        generator = Neo4jReportGenerator(
+            uri=os.environ['NEO4J_URI'],
+            username=os.environ['NEO4J_USERNAME'],
+            password=os.environ['NEO4J_PASSWORD'],
+        )
+        try:
+            reports = generator.generate_all_reports()
+            reports_count = len(reports)
+        finally:
+            generator.close()
+        
+        # Generate final grades
+        calculator = FinalGradeCalculator()
+        grades_file = calculator.generate_report()
+        
+        logging.warning(f'[generate_reports_endpoint] {datetime.now()} finished')
+        return JSONResponse({
+            "status": "success",
+            "message": f"Wygenerowano {reports_count} raportów oraz plik z ocenami końcowymi.",
+            "reports_count": reports_count,
+            "grades_file": grades_file
+        }, status_code=200)
+        
+    except Exception as e:
+        logging.error(f'[generate_reports_endpoint] Error: {str(e)}')
+        return JSONResponse({
+            "status": "error",
+            "message": f"Błąd generowania raportów: {str(e)}"
+        }, status_code=500)
+>>>>>>> lukasz/final-web-app

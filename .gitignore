@@ -16,3 +16,4 @@ backend/venv/
 **/projects.json
 **/assumptions/
 agent_server/venv/
+**/reports/
