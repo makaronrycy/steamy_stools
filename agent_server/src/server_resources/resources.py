@@ -125,9 +125,6 @@ async def completion_status_endpoint(request):
     )
     status = connector.get_completion_status()
     logging.warning(f'[completion_status_endpoint] {datetime.now()} finished')
-<<<<<<< HEAD
-    return JSONResponse(status, status_code=200)
-=======
     return JSONResponse(status, status_code=200)
 
 @MCP_SERVER.custom_route(path='/generate_reports', methods=['POST'])
@@ -175,4 +172,3 @@ async def generate_reports_endpoint(request):
             "status": "error",
             "message": f"Błąd generowania raportów: {str(e)}"
         }, status_code=500)
->>>>>>> lukasz/final-web-app
