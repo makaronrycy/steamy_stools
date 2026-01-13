@@ -1,8 +1,4 @@
-﻿<<<<<<< Updated upstream
-# Steamy Stools
-=======
 ﻿# Steamy Stools
->>>>>>> Stashed changes
 ## Opis programu
 Steamy stools to aplikacja mająca za zadanie automatyzacje procesy "Gorących Krzeseł", czyli wywiadów końcowych występujących na końcu przedmiotu ZSD.
 Początkowo program ocenia wkład studentów w projektowe repozytoria Github, oraz wyciąga informacje na temat spełnienia założen na podstawie prezentacji początkowej i końcowej.
