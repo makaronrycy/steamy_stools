@@ -148,6 +148,129 @@ Ocena = 0.10·Samoocena + 0.25·ŚrOcenWspółprac + 0.20·OcenaProjektu + 0.15�
 
 ### [Analiza Githuba](backend)
 ####[Analiza Repozytoriów](backend/code_metrics.py)
+ ## Analiza repozytorium GitHub
+
+### Cel modułu
+
+Moduł analizy repozytorium GitHub służy do automatycznej i możliwie obiektywnej
+oceny wkładu programistycznego poszczególnych autorów w projekcie zespołowym.
+Analiza nie opiera się wyłącznie na liczbie commitów, lecz uwzględnia również
+jakość kodu oraz regularność pracy w czasie.
+
+---
+
+### Ogólny przebieg analizy
+
+Analiza repozytorium składa się z następujących etapów:
+
+1. pobranie historii commitów z repozytorium,
+2. odfiltrowanie commitów niskiej wartości merytorycznej,
+3. analiza jakości kodu dla kolejnych commitów,
+4. ocena regularności pracy autorów,
+5. obliczenie końcowego wyniku dla każdego autora.
+
+Każdy etap wykonywany jest sekwencyjnie i bazuje wyłącznie na danych
+pochodzących z repozytorium Git.
+
+---
+
+### Pobieranie commitów
+
+Dla analizowanego repozytorium pobierana jest pełna lista commitów z wybranego
+brancha. Dla każdego commita zapisywane są podstawowe informacje:
+
+- identyfikator SHA,
+- autor,
+- data wykonania commita.
+
+Commity są sortowane chronologicznie, co umożliwia dalszą analizę zmian w czasie.
+
+---
+
+### Wykrywanie commitów niskiej wartości
+
+Przed właściwą analizą repozytorium jest oczyszczane z commitów, które nie
+wnoszą istotnego wkładu programistycznego.
+
+Automatycznie wykrywane i pomijane są:
+
+- commity zawierające wyłącznie zmiany białych znaków (whitespace),
+- commity zmieniające wyłącznie komentarze,
+- bardzo małe commity (poniżej ustalonego progu liczby zmienionych linii),
+- commity typu merge,
+- commity dotyczące wyłącznie plików binarnych (np. obrazy, dokumenty, archiwa).
+
+Każdy odrzucony commit posiada przypisaną przyczynę odrzucenia, co zapewnia
+przejrzystość procesu filtracji i ogranicza możliwość sztucznego zawyżania
+aktywności w repozytorium.
+
+---
+
+### Analiza jakości kodu
+
+Dla każdego zaakceptowanego commita repozytorium jest resetowane do jego stanu,
+a następnie wykonywana jest statyczna analiza jakości kodu.
+
+Dla każdego commita zbierane są metryki jakościowe, takie jak:
+
+- liczba błędów,
+- liczba podatności,
+- liczba code smells,
+- poziom duplikacji kodu.
+
+Pozwala to śledzić zmiany jakości kodu w czasie oraz ocenić wpływ commitów
+poszczególnych autorów na stan projektu.
+
+---
+
+### Przetwarzanie i normalizacja metryk
+
+Zebrane metryki jakości:
+
+- konwertowane są do postaci numerycznej,
+- przeliczane na zmiany pomiędzy kolejnymi commitami,
+- normalizowane do wspólnego zakresu wartości.
+
+Dzięki temu możliwe jest porównywanie commitów między sobą niezależnie od skali
+projektu.
+
+---
+
+### Ocena jakości commitów
+
+Na podstawie znormalizowanych metryk obliczana jest ocena jakości pojedynczego
+commita. Poszczególne metryki posiadają określone wagi, a wynik końcowy jest
+skalowany do jednolitej skali ocen.
+
+Dla każdego autora liczona jest średnia jakość jego commitów w całym projekcie.
+
+---
+
+### Analiza regularności pracy
+
+Oprócz jakości kodu analizowana jest również regularność pracy w czasie.
+
+Projekt dzielony jest na tygodnie, a commity autora przypisywane są do
+odpowiednich przedziałów czasowych. Na tej podstawie wyznaczane są:
+
+- liczba tygodni z aktywnością,
+- liczba tygodni bez commitów,
+- łączna liczba commitów autora.
+
+Na podstawie tych danych obliczana jest punktowa ocena regularności, która
+premiuje systematyczną pracę w trakcie trwania projektu.
+
+---
+
+### Wynik końcowy analizy GitHub
+
+Końcowy wynik analizy repozytorium dla każdego autora obliczany jest jako
+ważona kombinacja jakości commitów oraz regularności pracy:
+
+WynikGitHub = 0.65 · OcenaRegularności + 0.35 · OcenaJakościCommitów
+Otrzymany wynik stanowi syntetyczną miarę wkładu programistycznego autora w
+projekt, uwzględniając zarówno jakość kodu, jak i systematyczność pracy.
+
 ####[Analiza Założeń](backend/objectives.py)
 
 Zadaniem modułu analizy założeń jest automatyczne wykrywanie oraz weryfikacja założeń projektowych na podstawie dokumentów początkowych i końcowych projektu. Moduł działa w trybie wsadowym i jest uruchamiany niezależnie od klienta rozmowy, natomiast zapisane przez niego dane są później wykorzystywane w trakcie rozmowy ze studentem.
