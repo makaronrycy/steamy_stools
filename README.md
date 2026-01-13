@@ -148,19 +148,18 @@ Ocena = 0.10·Samoocena + 0.25·ŚrOcenWspółprac + 0.20·OcenaProjektu + 0.15�
 
 ### [Analiza Githuba](backend)
 
-####[Analiza Repozytoriów](backend/code_metrics.py)
- ## Analiza repozytorium GitHub
+#### [Analiza Repozytoriów](backend/code_metrics.py)
 
-### Cel modułu
+
+#### Cel modułu
 
 Moduł analizy repozytorium GitHub służy do automatycznej i możliwie obiektywnej
 oceny wkładu programistycznego poszczególnych autorów w projekcie zespołowym.
 Analiza nie opiera się wyłącznie na liczbie commitów, lecz uwzględnia również
 jakość kodu oraz regularność pracy w czasie.
 
----
 
-### Ogólny przebieg analizy
+#### Ogólny przebieg analizy
 
 Analiza repozytorium składa się z następujących etapów:
 
@@ -173,9 +172,9 @@ Analiza repozytorium składa się z następujących etapów:
 Każdy etap wykonywany jest sekwencyjnie i bazuje wyłącznie na danych
 pochodzących z repozytorium Git.
 
----
 
-### Pobieranie commitów
+
+#### Pobieranie commitów
 
 Dla analizowanego repozytorium pobierana jest pełna lista commitów z wybranego
 brancha. Dla każdego commita zapisywane są podstawowe informacje:
@@ -186,9 +185,9 @@ brancha. Dla każdego commita zapisywane są podstawowe informacje:
 
 Commity są sortowane chronologicznie, co umożliwia dalszą analizę zmian w czasie.
 
----
 
-### Wykrywanie commitów niskiej wartości
+
+#### [Wykrywanie commitów niskiej wartości](backend/Detect_Useless_Commits.py)
 
 Przed właściwą analizą repozytorium jest oczyszczane z commitów, które nie
 wnoszą istotnego wkładu programistycznego.
@@ -205,9 +204,9 @@ Każdy odrzucony commit posiada przypisaną przyczynę odrzucenia, co zapewnia
 przejrzystość procesu filtracji i ogranicza możliwość sztucznego zawyżania
 aktywności w repozytorium.
 
----
 
-### Analiza jakości kodu
+
+#### Analiza jakości kodu
 
 Dla każdego zaakceptowanego commita repozytorium jest resetowane do jego stanu,
 a następnie wykonywana jest statyczna analiza jakości kodu.
@@ -222,9 +221,9 @@ Dla każdego commita zbierane są metryki jakościowe, takie jak:
 Pozwala to śledzić zmiany jakości kodu w czasie oraz ocenić wpływ commitów
 poszczególnych autorów na stan projektu.
 
----
 
-### Przetwarzanie i normalizacja metryk
+
+#### Przetwarzanie i normalizacja metryk
 
 Zebrane metryki jakości:
 
@@ -235,9 +234,9 @@ Zebrane metryki jakości:
 Dzięki temu możliwe jest porównywanie commitów między sobą niezależnie od skali
 projektu.
 
----
 
-### Ocena jakości commitów
+
+#### Ocena jakości commitów
 
 Na podstawie znormalizowanych metryk obliczana jest ocena jakości pojedynczego
 commita. Poszczególne metryki posiadają określone wagi, a wynik końcowy jest
@@ -245,9 +244,9 @@ skalowany do jednolitej skali ocen.
 
 Dla każdego autora liczona jest średnia jakość jego commitów w całym projekcie.
 
----
 
-### Analiza regularności pracy
+
+#### [Analiza regularności pracy](backend/regularity_metrics.py)
 
 Oprócz jakości kodu analizowana jest również regularność pracy w czasie.
 
@@ -261,9 +260,9 @@ odpowiednich przedziałów czasowych. Na tej podstawie wyznaczane są:
 Na podstawie tych danych obliczana jest punktowa ocena regularności, która
 premiuje systematyczną pracę w trakcie trwania projektu.
 
----
 
-### Wynik końcowy analizy GitHub
+
+#### Wynik końcowy analizy GitHub
 
 Końcowy wynik analizy repozytorium dla każdego autora obliczany jest jako
 ważona kombinacja jakości commitów oraz regularności pracy:
@@ -272,7 +271,7 @@ WynikGitHub = 0.65 · OcenaRegularności + 0.35 · OcenaJakościCommitów
 Otrzymany wynik stanowi syntetyczną miarę wkładu programistycznego autora w
 projekt, uwzględniając zarówno jakość kodu, jak i systematyczność pracy.
 
-####[Analiza Założeń](backend/objectives.py)
+#### [Analiza Założeń](backend/objectives.py)
 
 Zadaniem modułu analizy założeń jest automatyczne wykrywanie oraz weryfikacja założeń projektowych na podstawie dokumentów początkowych i końcowych projektu. Moduł działa w trybie wsadowym i jest uruchamiany niezależnie od klienta rozmowy, natomiast zapisane przez niego dane są później wykorzystywane w trakcie rozmowy ze studentem.
 
