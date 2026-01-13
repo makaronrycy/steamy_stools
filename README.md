@@ -25,13 +25,20 @@ Następujące [stany](agent_client/src/states) to:
 - `masters_intent` - Pytanie czy student zamierza kontynuować magisterkę
 - `study_program_feedback` - Pytanie o przedmiot ZSD, jakie zmiany by wprowadził i jego wrażenia
 - `done` - Końcowy stan, w którym agent się żegna/przechodzi do chit-chatu
+
 [Plik](agent_client/src/states/__init__.py) definiuje także [narzędzia](agent_server.src/server_resources/tools.py) dostępne dla agenta i nazwy [promptów](agent_server/src/server_resources/prompt.py) na serwerze MCP,gdzie narzędzia są w [filtrowane](agent_client/src/utils.py), przez to że serwer MCP domyślnie zwraca wszystkie.
+
 Rozmowa składa się z dwóch głównych agentów, `QuestionAgent` przyjmującego prompta z pytaniem, oraz `VerificationAgent`, dla których każdy stan ma osobno określonego prompta.
+
 Zadaniem `QuestionAgent` jest zadanie pytania aktualnego stanu, gdzie przekazywane są mu ewentualne informacje celu pytania (o kim/o czym gadamy). Posiada także narzędzie zwracające informacje o studencie z którym rozmawia.
+
 `VerificationAgent` weryfikuje odpowiedź studenta, stwierdzając czy zawiera ocene, wystarczającą ocene, oraz czy student mówi na temat (jeśli student mówi o np. Kasi, a tematem pytaniu jest Kuba, agent nie przyjmuje odpowiedzi). Jeśli agent uzna odpowiedź studenta jako wystaczającą, ustawia ocene lub/z uzasadnieniem.
 Klient po tym weryfikuje czy ocena została wstawiona, i przechodzi do następnego stanu.
+
 Dla stanów `evaluate_project_grade`, `evaluate_teammate_grade`,`evaluate_objectives`, `evaluate_assumption`, odpowiednie cele pytań (student,projekt,założenie) są brane z bazy, gdzie po każdej kolejnej udanej odpowiedzi studenta jest brany kolejny, nieoceniony cel.   
+
 Przy stanie `evaluate_teammate_grade`, sprawdzana jest także mediana odpowiedzi innych studentów na temat osoby. Jeśli ocena studenta przekroczy granicę, agent przechodzi do substanu `outlier` i zadaje pytanie o różnice w odpowiedzi studenta do reszty. Uzasadnienie studenta jest także wpisywane do bazy.
+
 Dla stanu `evaluate_assumption`, jeśli student odpowiedział że założenie zostało spełnione, a skrypt analizujący prezentacje oznaczył je jako niespełnione, zadawane jest mu pytanie `followup` o różnice odpowiedzi ze stanem bazy. Uzasadnienie studenta jest zapisywane do bazy.
 
 Po każdej nie udanej odpowiedzi studenta agenta jest załączana podpowiedź, mówiąca o brakujących warunkach spełnienia pytania.
