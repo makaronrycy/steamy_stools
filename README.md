@@ -1,4 +1,4 @@
-﻿# Steamy Stools
+﻿﻿# Steamy Stools
 ## Opis programu
 Steamy stools to aplikacja mająca za zadanie automatyzacje procesy "Gorących Krzeseł", czyli wywiadów końcowych występujących na końcu przedmiotu ZSD.
 Początkowo program ocenia wkład studentów w projektowe repozytoria Github, oraz wyciąga informacje na temat spełnienia założen na podstawie prezentacji początkowej i końcowej.
@@ -8,7 +8,7 @@ Po ocenieniu pracy i spełnienia założeń, możliwe jest przeprowadzenie rozmo
 Po zakończeniu rozmowy z wszystkimi osobami, możliwa jest generacja końcowego raportu z wynikami.
 
 ## Działanie poszczególnych modułów
-- ### [Klient rozmowy](agent_client)
+### [Klient rozmowy](agent_client)
 Zadaniem klienta rozmowy jest komunikacja z agentem oraz przypisywanie stanów agenta. Serwis jest postawiony na `Sanic`, pozwalając nam na wiele połączeń naraz.
 Cała [logika agenta](agent_client/src/__init__.py) jest uruchamiana poprzez endpoint \start_agent.
 Jeśli student pierwszy raz rozpoczyna konwersacje, na bazie danych neo4j tworzy się węzeł `ConversationSession`, który przetrzymuje dane sesji, i.e. aktualny stan(`pending_state`), o co/kogo jest pytanie (`pending_target`) i czy student ukończył rozmowe (`completed`).
@@ -46,14 +46,108 @@ Po każdej nie udanej odpowiedzi studenta agenta jest załączana podpowiedź, m
 Po zakończeniu wszystkich pytań, student ma możliwość rozmowy z `PostInterviewAgent`, z którym może gadać o czymkolwiek. Rozmowa z tym agentem toczy się tak długo, aż nie będzie powiedziane "bezpieczne słowo" KONIEC. 
 
 #### Technologie
-- ### [Serwer MCP](agent_server))
+### [Serwer MCP](agent_server)
   Serwer MCP udostępnia narzędzia oraz zasoby dla agenta do zapisywania ocen oraz stanu, komunikując się z bazą neo4j.
   
   
-  #### Technologie
-- ### Baza danych neo4j
-- ### [Analiza Githuba](github_review)
-- ### [Frontend aplikacji](frontend)
+#### Technologie
+##### Baza danych neo4j
+
+Neo4j zawiera dane studentów, ich projektów zespołowych i wszystkich ocen jakie między sobą wystawiają (samoocena, oceny kolegów, lidera, projektu). Baza śledzi również założenia projektowe i ewaluacje studentów dotyczące ich spełnienia. Zapisywane są w niej również informacje śledzące obecny stan rozmowy. 
+
+W celu zapewnienia wygodnej obsługi bazy danych w pliku [inicjalizacyjnym](agent_server/src/neo4j_retriever/__init__.py) zaimplementowane zostały 2 zestawy metod, set i get pozwalające na szybkie wyszukiwanie i sprawdzanie rekordów, oraz tworzenie nowych rekordów w bazie. Metody get pozwalają na wyszukiwanie informacji o danych uczestnikach poprzez różne identyfikatory w zależności od tego jakie informacje poosiada agent. Dodatkowo stworzone zostały również metody wypełniające bazę danych poprzez zaciągnięcie informacji z plików .csv. Jest to kluczowa funkcjonalność pozwalająca na ułatwienie dalszego testowania serwisu poprzez łatwe zmienianie stanu "przesłuchania". 
+
+Opis etykiet bazy danych:
+- Typy node'ów (Neo4j labels):
+  - `Student`
+    - name - imię
+    - surname - nazwisko
+    - index - numer indeksu
+    - github - nick github
+  - `Project`
+    - id - identyfikator projektu
+    - name - nazwa projektu
+  - `Answer`
+    - grade - ocena (liczba)
+    - explanation - uzasadnienie oceny
+    - question_type - typ pytania (self_assessment, teammate_assessment, project_assessment, leadership_assessment, objectives_assessment, github_assessment, masters_intent, study_program_feedback)
+    - outlier_followup_done - czy dodano uzasadnienie dla opinii odbiegającej (boolean)
+    - outlier_followup - tekst uzasadnienia
+  - `Assumption`
+    - description
+    - system_accepted
+  - `AssumptionEvaluation`
+    - explanation
+  - `ConversationSession`
+    - session_id
+    - student_index
+    - current_state
+    - last_state
+    - pending_target_json
+    - pending_substate_json
+    - started_at
+    - last_updated
+    - is_active
+    - completed
+  - `ConversationMessage`
+    - message_id
+    - role
+    - content 
+    - state_at_time
+    - timestamp
+
+- Typy relacji (Neo4j relationship types):
+  - `belongs_to`
+  - `answered`
+  - `refers_to`
+  - `has_assumption`
+  - `evaluated`
+  - `HAS_SESSION`
+  - `HAS_MESSAGE`
+
+- Typy pytań / odpowiedzi (wartości `question_type`):
+  - `self_assessment`
+  - `teammate_assessment`
+  - `github_assessment`
+  - `leadership_assessment`
+  - `project_assessment`
+  - `objectives_assessment`
+  - `masters_intent`
+  - `study_program_feedback`
+
+- Stany workflow (wartości `current_state`):
+  - `initial`
+  - `self_evaluation`
+  - `evaluate_teammate_grade`
+  - `evaluate_project_grade`
+  - `evaluate_leader_grade`
+  - `evaluate_objectives`
+  - `evaluate_assumption`
+  - `masters_intent`
+  - `study_program_feedback`
+  - `done`
+  - `completed`
+
+##### Generacja raportów i ocen końcowych
+[generate_reports.py](agent_server/src/neo4j_retriever/generate_reports.py)
+
+Generuje 14 kompleksowych raportów CSV z bazy Neo4j. Eksportuje wszystkie dane struktury bazy:
+Węzły: studenci, projekty, założenia
+Oceny: samooceny, projekty, współpracownicy, liderów, GitHub, cele
+Ewaluacje założeń studentów
+Podsumowania i statystyki. Każdy raport to osobny plik CSV z pełnym zrzutem danych danej kategorii.
+
+[generate_final_grades.py](agent_server/src/neo4j_retriever/generate_final_grades.py)
+
+Oblicza oceny końcowe studentów na podstawie ważonego wzoru:
+
+Ocena = 0.10·Samoocena + 0.25·ŚrOcenWspółprac + 0.20·OcenaProjektu + 0.15·OcenaCelów + 0.15·OcenaGitHub + 0.15·WspółczynnikZałożeń
+
+- Normalizuje brakujące dane
+- Zapisuje wyniki do CSV z raportów
+
+### [Analiza Githuba](github_review)
+### [Frontend aplikacji](frontend)
 Frontend jest zbudowany jako SPA (Single Page Application) przy użyciu React 19 z TypeScript. Jako bundler i dev server wykorzystywany jest Vite, zapewniający szybkie przeładowanie podczas developmentu.
 
 Głównym punktem wejścia aplikacji jest plik [App.tsx](frontend/src/App.tsx), który definiuje routing i strukturę strony. Komunikacja z backendem realizowana jest na dwa sposoby:
@@ -69,7 +163,7 @@ Dodatkowo zintegrowano bibliotekę React Speech Recognition, umożliwiającą st
 #### Technologie
 - React 19, TypeScript, Vite, Axios, React Speech Recognition
 
-- ### [Backend aplikacji](backend)
+### [Backend aplikacji](backend)
 Backend jest serwerem HTTP/WebSocket zbudowanym na frameworku FastAPI. Cała logika serwera znajduje się w pliku [server_http.py](backend/server_http.py).
 
 Serwer udostępnia endpoint WebSocket pod ścieżką `/ws`, zarządzany przez klasę [`ConnectionManager`](backend/server_http.py). Menedżer ten przechowuje listę aktywnych połączeń i umożliwia:
