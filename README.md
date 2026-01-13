@@ -147,7 +147,9 @@ Ocena = 0.10·Samoocena + 0.25·ŚrOcenWspółprac + 0.20·OcenaProjektu + 0.15�
 - Zapisuje wyniki do CSV z raportów
 
 ### [Analiza Githuba](backend)
+
 ####[Analiza Repozytoriów](backend/code_metrics.py)
+...
 ####[Analiza Założeń](backend/objectives.py)
 
 Zadaniem modułu analizy założeń jest automatyczne wykrywanie oraz weryfikacja założeń projektowych na podstawie dokumentów początkowych i końcowych projektu. Moduł działa w trybie wsadowym i jest uruchamiany niezależnie od klienta rozmowy, natomiast zapisane przez niego dane są później wykorzystywane w trakcie rozmowy ze studentem.
@@ -160,7 +162,7 @@ Moduł korzysta z modelu LLM (`gpt-4o-mini`) w dwóch etapach:
 - ekstrakcji założeń (niska, ale niezerowa temperatura),
 - deterministycznej weryfikacji spełnienia założeń (temperatura 0).
 
----
+
 
 ##### Etapy przetwarzania
 
@@ -183,7 +185,7 @@ W kolejnym kroku wykryte założenia są weryfikowane na podstawie dokumentów k
 
 Wynik weryfikacji zapisywany jest lokalnie w pliku `raport.json` i zawiera dla każdego założenia informację o jego spełnieniu (`spelnione`).
 
----
+
 
 ###### Integracja z Neo4j
 
@@ -195,7 +197,7 @@ Każdy węzeł `Assumption` przechowuje:
 
 Jeśli projekt nie istnieje w bazie lub konfiguracja Neo4j nie jest dostępna, zapis założeń jest pomijany.
 
----
+
 
 
 ##### [Inicjalizacja katalogów założeń](backend/assumptions_dirs.py)
@@ -213,14 +215,14 @@ assumptions/
 
 Katalog `start_assumptions` przeznaczony jest na dokumenty opisujące początkowe założenia projektu, natomiast `end_assumptions` na dokumenty końcowe, które służą do weryfikacji spełnienia tych założeń.
 
----
+
 
 ###### Rola w systemie rozmów
 
 Założenia zapisane przez moduł analizy wykorzystywane są w stanie `evaluate_assumption` klienta rozmowy. Systemowa ocena spełnienia założenia porównywana jest z odpowiedzią studenta. W przypadku rozbieżności student proszony jest o uzasadnienie, które zapisywane jest w bazie jako dodatkowa informacja do danego założenia.
 
 
----
+
 
 
 ##### [Parser dokumentów](backend/pdf2txt.py)
