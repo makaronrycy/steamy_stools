@@ -146,7 +146,103 @@ Ocena = 0.10·Samoocena + 0.25·ŚrOcenWspółprac + 0.20·OcenaProjektu + 0.15�
 - Normalizuje brakujące dane
 - Zapisuje wyniki do CSV z raportów
 
-### [Analiza Githuba](github_review)
+### [Analiza Githuba](backend)
+####[Analiza Repozytoriów](backend/code_metrics.py)
+####[Analiza Założeń](backend/objectives.py)
+
+Zadaniem modułu analizy założeń jest automatyczne wykrywanie oraz weryfikacja założeń projektowych na podstawie dokumentów początkowych i końcowych projektu. Moduł działa w trybie wsadowym i jest uruchamiany niezależnie od klienta rozmowy, natomiast zapisane przez niego dane są później wykorzystywane w trakcie rozmowy ze studentem.
+
+Analiza wykonywana jest na katalogu `assumptions`, w którym każdy projekt posiada osobny folder. Dla każdego projektu wymagane są dwa podkatalogi: `start_assumptions`, zawierający dokumenty opisujące początkowe założenia projektu, oraz `end_assumptions`, zawierający dokumenty końcowe (np. prezentacje podsumowujące).
+
+Obsługiwane są pliki tekstowe `.txt`, `.md`, `.json` oraz pliki `.pdf`, z których treść jest automatycznie wyodrębniana .
+
+Moduł korzysta z modelu LLM (`gpt-4o-mini`) w dwóch etapach:
+- ekstrakcji założeń (niska, ale niezerowa temperatura),
+- deterministycznej weryfikacji spełnienia założeń (temperatura 0).
+
+---
+
+##### Etapy przetwarzania
+
+###### ETAP 0 – Identyfikacja projektu
+
+Na podstawie dokumentów początkowych wyodrębniana jest nazwa projektu. Model zwraca wyłącznie jedną linię tekstu zawierającą nazwę projektu, która następnie wykorzystywana jest do powiązania założeń z odpowiednim węzłem `Project` w bazie danych Neo4j.
+
+###### ETAP 1 – Ekstrakcja założeń
+
+Z dokumentów początkowych projektu wykrywane są mierzalne wymagania/założenia. Każde założenie otrzymuje unikalny identyfikator (`REQ-XXX`) oraz opis tekstowy. Wynik ekstrakcji zapisywany jest lokalnie do pliku `objectives.json` w katalogu projektu.
+
+Każde założenie zawiera:
+- identyfikator wymagania,
+- nazwę projektu,
+- opis wymagania.
+
+###### ETAP 2 – Weryfikacja założeń
+
+W kolejnym kroku wykryte założenia są weryfikowane na podstawie dokumentów końcowych projektu. Dla każdego wymagania model zwraca binarną informację, czy zostało ono spełnione (`true/false`).
+
+Wynik weryfikacji zapisywany jest lokalnie w pliku `raport.json` i zawiera dla każdego założenia informację o jego spełnieniu (`spelnione`).
+
+---
+
+###### Integracja z Neo4j
+
+Po zakończeniu analizy wszystkich projektów, założenia zapisywane są do bazy danych Neo4j. Dla każdego projektu wyszukiwany jest odpowiadający mu węzeł `Project`, a następnie tworzone są węzły `Assumption`, połączone relacją `has_assumption`.
+
+Każdy węzeł `Assumption` przechowuje:
+- opis założenia,
+- systemową ocenę spełnienia (`system_accepted`).
+
+Jeśli projekt nie istnieje w bazie lub konfiguracja Neo4j nie jest dostępna, zapis założeń jest pomijany.
+
+---
+
+
+##### [Inicjalizacja katalogów założeń](backend/assumptions_dirs.py)
+
+Przed uruchomieniem analizy założeń konieczne jest przygotowanie struktury katalogów dla wszystkich projektów. Odpowiada za to funkcja `create_assumption_dirs`, której zadaniem jest automatyczne utworzenie katalogów roboczych na podstawie listy projektów.
+
+Funkcja odczytuje plik `data/projects.json`, zawierający listę projektów zdefiniowanych w systemie. Dla każdego projektu tworzona jest struktura katalogów w folderze bazowym `assumptions`:
+
+```bash
+assumptions/
+ └── <project_name>/
+     ├── start_assumptions/
+     └── end_assumptions/
+```
+
+Katalog `start_assumptions` przeznaczony jest na dokumenty opisujące początkowe założenia projektu, natomiast `end_assumptions` na dokumenty końcowe, które służą do weryfikacji spełnienia tych założeń.
+
+---
+
+###### Rola w systemie rozmów
+
+Założenia zapisane przez moduł analizy wykorzystywane są w stanie `evaluate_assumption` klienta rozmowy. Systemowa ocena spełnienia założenia porównywana jest z odpowiedzią studenta. W przypadku rozbieżności student proszony jest o uzasadnienie, które zapisywane jest w bazie jako dodatkowa informacja do danego założenia.
+
+
+---
+
+
+##### [Parser dokumentów](backend/pdf2txt.py)
+
+Ekstrakcja treści z plików wejściowych realizowana jest przez pomocniczy moduł `pdf2txt`, wykorzystywany przez analizator założeń do ujednolicenia formatu danych wejściowych.
+
+Funkcja `extract_text_from_file` przyjmuje ścieżkę do pliku i zwraca jego zawartość w postaci tekstu w formacie Markdown.
+
+W obecnej wersji:
+- natywnie wspierane są pliki PDF,
+- pliki tekstowe (`.txt`, `.md`, `.json`) są odczytywane bezpośrednio jako fallback,
+- pozostałe formaty (`.doc`, `.ppt`, itp.) nie są wspierane w środowisku Docker (Linux) i wymagają wcześniejszej konwersji do PDF.
+
+Dla plików PDF wykorzystywane są biblioteki:
+- `pymupdf` – do otwarcia dokumentu,
+- `pymupdf4llm` – do konwersji treści PDF na Markdown, zoptymalizowany pod dalsze przetwarzanie przez modele LLM.
+
+W przypadku błędu ekstrakcji lub nieobsługiwanego formatu, funkcja zwraca komunikat ostrzegawczy zamiast treści dokumentu, co pozwala zachować ciągłość przetwarzania bez przerywania analizy całego projektu.
+
+Moduł ten jest wykorzystywany na etapie wczytywania dokumentów zarówno dla katalogów `start_assumptions`, jak i `end_assumptions`.
+
+
 ### [Frontend aplikacji](frontend)
 Frontend jest zbudowany jako SPA (Single Page Application) przy użyciu React 19 z TypeScript. Jako bundler i dev server wykorzystywany jest Vite, zapewniający szybkie przeładowanie podczas developmentu.
 
