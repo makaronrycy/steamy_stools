@@ -1,4 +1,8 @@
+﻿<<<<<<< Updated upstream
 # Steamy Stools
+=======
+﻿# Steamy Stools
+>>>>>>> Stashed changes
 ## Opis programu
 Steamy stools to aplikacja mająca za zadanie automatyzacje procesy "Gorących Krzeseł", czyli wywiadów końcowych występujących na końcu przedmiotu ZSD.
 Początkowo program ocenia wkład studentów w projektowe repozytoria Github, oraz wyciąga informacje na temat spełnienia założen na podstawie prezentacji początkowej i końcowej.
@@ -54,7 +58,32 @@ Po zakończeniu wszystkich pytań, student ma możliwość rozmowy z `PostInterv
 - ### Baza danych neo4j
 - ### [Analiza Githuba](github_review)
 - ### [Frontend aplikacji](frontend)
+Frontend jest zbudowany jako SPA (Single Page Application) przy użyciu React 19 z TypeScript. Jako bundler i dev server wykorzystywany jest Vite, zapewniający szybkie przeładowanie podczas developmentu.
+
+Głównym punktem wejścia aplikacji jest plik [App.tsx](frontend/src/App.tsx), który definiuje routing i strukturę strony. Komunikacja z backendem realizowana jest na dwa sposoby:
+- **REST API** - poprzez bibliotekę Axios, której konfiguracja znajduje się w pliku [api.ts](frontend/src/services/api.ts)
+- **WebSocket** - natywne API przeglądarki do komunikacji w czasie rzeczywistym, używane do odbierania statusów analiz i powiadomień
+
+Komponenty interfejsu użytkownika znajdują się w katalogu [components](frontend/src/components). Główne z nich to:
+- [AdminPanel.tsx](frontend/src/components/AdminPanel.tsx) - panel administracyjny do zarządzania analizami i inicjalizowania bazy danych
+- [ChatPanel.tsx](frontend/src/components/ChatPanel.tsx) - panel rozmowy ze studentem podczas wywiadu
+
+Dodatkowo zintegrowano bibliotekę React Speech Recognition, umożliwiającą studentom dyktowanie odpowiedzi głosem zamiast pisania.
+
+#### Technologie
+- React 19, TypeScript, Vite, Axios, React Speech Recognition
+
 - ### [Backend aplikacji](backend)
+Backend jest serwerem HTTP/WebSocket zbudowanym na frameworku FastAPI. Cała logika serwera znajduje się w pliku [server_http.py](backend/server_http.py).
+
+Serwer udostępnia endpoint WebSocket pod ścieżką `/ws`, zarządzany przez klasę [`ConnectionManager`](backend/server_http.py). Menedżer ten przechowuje listę aktywnych połączeń i umożliwia:
+- Akceptowanie nowych połączeń WebSocket od klientów
+- Broadcastowanie wiadomości do wszystkich podłączonych klientów jednocześnie
+- Powiadamianie frontendu o postępie i statusie trwających analiz w czasie rzeczywistym
+- Obsługę rozłączeń i czyszczenie nieaktywnych połączeń
+
+#### Technologie
+- FastAPI, WebSocket
 ## Wymagania
 
 - **Docker Desktop** (z Docker Compose)
