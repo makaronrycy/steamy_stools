@@ -28,7 +28,7 @@ Następujące [stany](agent_client/src/states) to:
 
 [Plik](agent_client/src/states/__init__.py) definiuje także [narzędzia](agent_server.src/server_resources/tools.py) dostępne dla agenta i nazwy [promptów](agent_server/src/server_resources/prompt.py) na serwerze MCP,gdzie narzędzia są w [filtrowane](agent_client/src/utils.py), przez to że serwer MCP domyślnie zwraca wszystkie.
 
-Rozmowa składa się z dwóch głównych agentów, `QuestionAgent` przyjmującego prompta z pytaniem, oraz `VerificationAgent`, dla których każdy stan ma osobno określonego prompta.
+Rozmowa składa się z dwóch głównych agentów, `QuestionAgent` przyjmującego prompta z pytaniem, oraz `VerificationAgent`, dla których każdy stan ma osobno określonego prompta. Każdy agent operuje na modelu gpt-4o-mini.
 
 Zadaniem `QuestionAgent` jest zadanie pytania aktualnego stanu, gdzie przekazywane są mu ewentualne informacje celu pytania (o kim/o czym gadamy). Posiada także narzędzie zwracające informacje o studencie z którym rozmawia.
 
@@ -46,16 +46,26 @@ Po każdej nie udanej odpowiedzi studenta agenta jest załączana podpowiedź, m
 Po zakończeniu wszystkich pytań, student ma możliwość rozmowy z `PostInterviewAgent`, z którym może gadać o czymkolwiek. Rozmowa z tym agentem toczy się tak długo, aż nie będzie powiedziane "bezpieczne słowo" KONIEC. 
 
 #### Technologie
+- Agents SDK
+- Sanic
 ### [Serwer MCP](agent_server)
   Serwer MCP udostępnia narzędzia oraz zasoby dla agenta do zapisywania ocen oraz stanu, komunikując się z bazą neo4j.
   
+  W folderze [server_resources](agent_server/src/server_resources) zdefiniowane są prompty agenta i tool'e agenta. Id studenta z który rozmawia jest przekazywane do serwera poprzez nagłówek HTTP, pozwalając na korzystanie z metod neo4j_retriever get i set bez halucynacji agenta. O samych metodach neo4j_retriever więcej w przypisie Baza danych neo4j.
+
+  Serwer MCP zawiera także [endpoint](agent_server/src/server_resources/resources.py), który zwraca stan kompletności rozmowy.
+
   
 #### Technologie
+- FastMCP
+- Unicorvn
+- neo4j
 ##### Baza danych neo4j
 
 Neo4j zawiera dane studentów, ich projektów zespołowych i wszystkich ocen jakie między sobą wystawiają (samoocena, oceny kolegów, lidera, projektu). Baza śledzi również założenia projektowe i ewaluacje studentów dotyczące ich spełnienia. Zapisywane są w niej również informacje śledzące obecny stan rozmowy. 
 
 W celu zapewnienia wygodnej obsługi bazy danych w pliku [inicjalizacyjnym](agent_server/src/neo4j_retriever/__init__.py) zaimplementowane zostały 2 zestawy metod, set i get pozwalające na szybkie wyszukiwanie i sprawdzanie rekordów, oraz tworzenie nowych rekordów w bazie. Metody get pozwalają na wyszukiwanie informacji o danych uczestnikach poprzez różne identyfikatory w zależności od tego jakie informacje poosiada agent. Dodatkowo stworzone zostały również metody wypełniające bazę danych poprzez zaciągnięcie informacji z plików .csv. Jest to kluczowa funkcjonalność pozwalająca na ułatwienie dalszego testowania serwisu poprzez łatwe zmienianie stanu "przesłuchania". 
+
 
 Opis etykiet bazy danych:
 - Typy node'ów (Neo4j labels):
